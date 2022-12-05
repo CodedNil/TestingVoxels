@@ -31,18 +31,19 @@ func _ready():
 			# For the last 25% of the angle, so from half pi to pi, lerp towards roomSize0
 			var roomSizeLerp = lerp(roomSize, roomSize0, (roomAngle - PI / 2) / (PI / 2)) if roomAngle > PI / 2 else roomSize
 
-			# Calculate if we are inside the room
+			# Calculate if we are inside the room, if we are at the wall, and distance from wall
 			var roomInside = roomDist < roomSizeLerp
-			# Calculate if we are at the wall
 			var roomWall = abs(roomDist - roomSizeLerp) < voxelSize
+			var roomDistWall = abs(roomDist - roomSizeLerp)
 			if roomInside or roomWall:
-
 				for y in range(-extents.y / voxelSize / 2, extents.y / voxelSize / 2):
 					if roomWall or y == 0:
 						var pos = Vector3(x * voxelSize, y * voxelSize, z * voxelSize)
 
 						# Set y to simplex noise
 						pos.y += noiseHeight.get_noise_2dv(pos2d) * 2
+						if roomDistWall < 2:
+							pos.y += (2 - roomDistWall) / 2
 
 						# Create a new BoxMesh
 						var box = BoxMesh.new()
