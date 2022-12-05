@@ -1,0 +1,26 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
+
+config_version=5
+
+_global_script_classes=[{
+"base": "Camera3D",
+"class": &"FreeLookCamera",
+"language": &"GDScript",
+"path": "res://camera.gd"
+}]
+_global_script_class_icons={
+"FreeLookCamera": ""
+}
+
+[application]
+
+config/name="TestingVoxels"
+run/main_scene="res://main_scene.tscn"
+config/features=PackedStringArray("4.0", "Forward Plus")
+config/icon="res://icon.svg"
