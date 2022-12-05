@@ -1,7 +1,7 @@
 extends Node3D
 
 
-var extents = Vector3(25, 5, 25)
+var extents = Vector3(25, 25, 25)
 var voxelSize = 0.25
 
 func _ready():
@@ -35,21 +35,24 @@ func _ready():
 			var roomInside = roomDist < roomSizeLerp
 			var roomWall = abs(roomDist - roomSizeLerp) < voxelSize
 			var roomDistWall = abs(roomDist - roomSizeLerp)
-			if roomInside or roomWall:
+			if roomInside:
 				for y in range(-extents.y / voxelSize / 2, extents.y / voxelSize / 2):
-					if roomWall or y == 0:
-						var pos = Vector3(x * voxelSize, y * voxelSize, z * voxelSize)
+						# if roomWall or y == 0:
+					var pos = Vector3(x * voxelSize, y * voxelSize, z * voxelSize)
+					# Get 3d distance from center
+					var roomDist3d = pos.length()
+					if abs(roomDist3d - roomSizeLerp) < voxelSize * 2:
 
 						# Set y to simplex noise
 						pos.y += noiseHeight.get_noise_2dv(pos2d) * 2
-						if roomDistWall < 2:
-							pos.y += (2 - roomDistWall) / 2
+						# if roomDistWall < 2:
+						# 	pos.y += (2 - roomDistWall) / 2
 
 						# Create a new BoxMesh
 						var box = BoxMesh.new()
 						box.size = Vector3(voxelSize, voxelSize, voxelSize)
 						# Assign a random color to the box
-						var color = Color((roomAngle + PI) / (PI * 2), 0, 0)#Color(randf(), randf(), randf())
+						var color = Color(randf(), randf(), randf())
 						# Create a new MeshInstance
 						var mesh = MeshInstance3D.new()
 						mesh.mesh = box
