@@ -35,30 +35,31 @@ func _ready():
 			var roomInside = roomDist < roomSizeLerp
 			var roomWall = abs(roomDist - roomSizeLerp) < voxelSize
 			var roomDistWall = abs(roomDist - roomSizeLerp)
-			if roomInside:
-				for y in range(-extents.y / voxelSize / 2, extents.y / voxelSize / 2):
-						# if roomWall or y == 0:
-					var pos = Vector3(x * voxelSize, y * voxelSize, z * voxelSize)
-					# Get 3d distance from center
-					var roomDist3d = pos.length()
-					if abs(roomDist3d - roomSizeLerp) < voxelSize * 2:
+			for y in range(-extents.y / voxelSize / 2, extents.y / voxelSize / 2):
+					# if roomWall or y == 0:
+				var pos = Vector3(x * voxelSize, y * voxelSize, z * voxelSize)
+				# Get 3d distance from center
+				var roomDist3d = Vector3(x * voxelSize, y * voxelSize * 3, z * voxelSize).length()
+				if abs(roomDist3d - roomSizeLerp) < voxelSize * 3:
 
-						# Set y to simplex noise
-						pos.y += noiseHeight.get_noise_2dv(pos2d) * 2
-						# if roomDistWall < 2:
-						# 	pos.y += (2 - roomDistWall) / 2
+					# Add height to y based on noise
+					pos.y += noiseHeight.get_noise_2dv(pos2d) * 2
+					# Add jiggle to x and z based on noise
+					pos.x += noiseHeight.get_noise_2dv(Vector2(z * voxelSize, y * voxelSize) ) * 0.5
+					pos.z += noiseHeight.get_noise_2dv(Vector2(x * voxelSize, y * voxelSize) ) * 0.5
 
-						# Create a new BoxMesh
-						var box = BoxMesh.new()
-						box.size = Vector3(voxelSize, voxelSize, voxelSize)
-						# Assign a random color to the box
-						var color = Color(randf(), randf(), randf())
-						# Create a new MeshInstance
-						var mesh = MeshInstance3D.new()
-						mesh.mesh = box
-						mesh.material_override = StandardMaterial3D.new()
-						mesh.material_override.albedo_color = color
-						# Add mesh as a child of this node
-						add_child(mesh)
-						# Position the mesh
-						mesh.transform.origin = pos
+					# Create a new BoxMesh
+					var box = BoxMesh.new()
+					box.size = Vector3(voxelSize, voxelSize, voxelSize)
+					# Assign a random color to the box
+					var shade = abs(y * voxelSize) / 5
+					var color = Color(shade, shade, shade)
+					# Create a new MeshInstance
+					var mesh = MeshInstance3D.new()
+					mesh.mesh = box
+					mesh.material_override = StandardMaterial3D.new()
+					mesh.material_override.albedo_color = color
+					# Add mesh as a child of this node
+					add_child(mesh)
+					# Position the mesh
+					mesh.transform.origin = pos
