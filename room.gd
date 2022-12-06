@@ -1,7 +1,7 @@
 extends Node3D
 
 const extents = Vector3(70, 35, 70)
-const voxelSize = 1
+const voxelSize = 0.25
 
 
 # Create noise generator class that can be initialised then have functions within
@@ -46,7 +46,7 @@ class DataGenerator:
 		)
 
 		# Calculate if we are inside the room, if we are at the wall, and distance from wall
-		var roomInside2d = roomDist < roomSizeLerp
+		var roomInside2d = roomDist < roomSizeLerp + voxelSize * 4
 
 		return {
 			"noiseHeight": noiseHeight,
@@ -58,9 +58,10 @@ class DataGenerator:
 		}
 
 	func get_data_3d(data2d, pos2d, pos3d):
-		var roomHeight = 4 if pos3d.y < 0 else 2 + getNoise(0.1, 12345).get_noise_2dv(pos2d) * 1
-		var roomDist3d = Vector3(pos3d.x * voxelSize, pos3d.y * voxelSize * roomHeight, pos3d.z * voxelSize).length()
+		var roomHeight = 4 if pos3d.y < 0 else 2 + getNoise(0.1, 12345).get_noise_2dv(pos2d) * 0.5
+		var roomDist3d = Vector3(pos3d.x, pos3d.y * roomHeight, pos3d.z).length()
 		var roomInside3d = roomDist3d < data2d.roomSize
+		var roomWayOutside3d = roomDist3d > data2d.roomSize + voxelSize * 4
 
 		# Jitter the pos3d
 		var posJittered = Vector3(pos3d.x, pos3d.y, pos3d.z)
@@ -68,17 +69,32 @@ class DataGenerator:
 		posJittered.y += data2d.height
 		# Add jiggle to x and z based on noise
 		posJittered.x += (
-			data2d.noiseHeight.get_noise_2dv(Vector2(pos3d.z * voxelSize, pos3d.y * voxelSize))
+			data2d.noiseHeight.get_noise_2dv(Vector2(pos3d.z, pos3d.y))
 			* 0.5
 		)
 		posJittered.z += (
-			data2d.noiseHeight.get_noise_2dv(Vector2(pos3d.x * voxelSize, pos3d.y * voxelSize))
+			data2d.noiseHeight.get_noise_2dv(Vector2(pos3d.x, pos3d.y))
 			* 0.5
 		)
+
+		# Get if voxel is floor or ceiling, if y close to 0 or above room height
+		var isFloor = pos3d.y < -2
+		var isCeiling = pos3d.y > 2
 
 		return {
 			"posJittered": posJittered,
 			"roomDist3d": roomDist3d,
+			"roomInside3d": roomInside3d,
+			"roomWayOutside3d": roomWayOutside3d,
+			"isFloor": isFloor,
+			"isCeiling": isCeiling,
+		}
+
+	func get_data_3d_roomInside(data2d, pos2d, pos3d):
+		var roomHeight = 4 if pos3d.y < 0 else 2 + getNoise(0.1, 12345).get_noise_2dv(pos2d) * 1
+		var roomDist3d = Vector3(pos3d.x, pos3d.y * roomHeight, pos3d.z).length()
+		var roomInside3d = roomDist3d < data2d.roomSize
+		return {
 			"roomInside3d": roomInside3d,
 		}
 
@@ -107,19 +123,24 @@ func _ready():
 					var data3d = dataGen.get_data_3d(data2d, pos2d, pos3d)
 
 					# If inside the room, skip
-					if data3d.roomInside3d:
+					if data3d.roomInside3d or data3d.roomWayOutside3d:
 						continue
 
 					# Explore neighbouring voxels until we find one that is inside the room
 					var adjacence = false
-					for x2 in range(-1, 1):
-						for y2 in range(-1, 1):
-							for z2 in range(-1, 1):
+					var searchExtents = Vector3(2, 2, 2)
+					if data3d.isFloor || data3d.isCeiling:
+						searchExtents.y = 3
+					else:
+						searchExtents = Vector3(3, 1, 3)
+					for x2 in range(-searchExtents.x + 1, searchExtents.x):
+						for y2 in range(-searchExtents.y + 1, searchExtents.y):
+							for z2 in range(-searchExtents.z + 1, searchExtents.z):
 								if x2 == 0 && y2 == 0 && z2 == 0:
 									continue
 								var pos2d2 = pos2d + Vector2(x2, z2) * voxelSize
 								var pos3d2 = pos3d + Vector3(x2, y2, z2) * voxelSize
-								var data3d2 = dataGen.get_data_3d(data2d, pos2d2, pos3d2)
+								var data3d2 = dataGen.get_data_3d_roomInside(data2d, pos2d2, pos3d2)
 								if data3d2.roomInside3d:
 									adjacence = true
 									break
@@ -132,6 +153,9 @@ func _ready():
 						# Create a new BoxMesh
 						var box = BoxMesh.new()
 						box.size = Vector3(voxelSize, voxelSize, voxelSize)
+						# If is floor or ceiling, make it much taller
+						if data3d.isFloor or data3d.isCeiling:
+							box.size.y *= 10
 						# Create a new MeshInstance
 						var mesh = MeshInstance3D.new()
 						mesh.mesh = box
@@ -141,7 +165,13 @@ func _ready():
 						mesh.material_override = StandardMaterial3D.new()
 						mesh.material_override.albedo_color = color
 						# Position the mesh
-						mesh.transform.origin = data3d.posJittered
+						var posJittered = data3d.posJittered
+						# If is floor or ceiling, make move it down or up
+						if data3d.isFloor:
+							posJittered.y -= voxelSize * 4
+						if data3d.isCeiling:
+							posJittered.y += voxelSize * 4
+						mesh.transform.origin = posJittered
 						# Add mesh as a child of this node
 						add_child(mesh)
 
