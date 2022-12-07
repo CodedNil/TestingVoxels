@@ -1,7 +1,7 @@
 extends Node3D
 
 const extents = Vector3(70, 35, 70)
-const voxelSize = 0.25
+const voxelSize = 0.5
 
 
 # Create noise generator class that can be initialised then have functions within
@@ -45,14 +45,14 @@ class DataGenerator:
 			else roomSize
 		)
 
-		# Calculate if we are inside the room, if we are at the wall, and distance from wall
-		var roomInside2d = roomDist < roomSizeLerp + voxelSize * 4
+		# Calculate if we are inside the room
+		var roomAdjacence2d = roomDist < roomSizeLerp + voxelSize * 4
 
 		return {
 			"noiseHeight": noiseHeight,
 			"height": height,
 			"temperature": temperature,
-			"roomInside2d": roomInside2d,
+			"roomAdjacence2d": roomAdjacence2d,
 			"roomDist": roomDist,
 			"roomSize": roomSizeLerp,
 		}
@@ -80,6 +80,7 @@ class DataGenerator:
 		# Get if voxel is floor or ceiling, if y close to 0 or above room height
 		var isFloor = pos3d.y < -2
 		var isCeiling = pos3d.y > 2
+		var isHighCeiling = pos3d.y > 8
 
 		return {
 			"posJittered": posJittered,
@@ -88,6 +89,7 @@ class DataGenerator:
 			"roomWayOutside3d": roomWayOutside3d,
 			"isFloor": isFloor,
 			"isCeiling": isCeiling,
+			"isHighCeiling": isHighCeiling,
 		}
 
 	func get_data_3d_roomInside(data2d, pos2d, pos3d):
@@ -115,7 +117,7 @@ func _ready():
 			# Get data for the 2d point
 			var data2d = dataGen.get_data_2d(pos2d)
 
-			if data2d.roomInside2d:
+			if data2d.roomAdjacence2d:
 				for y in range(-extents.y / voxelSize / 2, extents.y / voxelSize / 2):
 					var pos3d = Vector3(x * voxelSize, y * voxelSize, z * voxelSize)
 
@@ -127,61 +129,94 @@ func _ready():
 						continue
 
 					# Explore neighbouring voxels until we find one that is inside the room
-					var adjacence = false
-					var searchExtents = Vector3(2, 2, 2)
-					if data3d.isFloor || data3d.isCeiling:
-						searchExtents.y = 3
-					else:
-						searchExtents = Vector3(3, 1, 3)
-					for x2 in range(-searchExtents.x + 1, searchExtents.x):
-						for y2 in range(-searchExtents.y + 1, searchExtents.y):
-							for z2 in range(-searchExtents.z + 1, searchExtents.z):
-								if x2 == 0 && y2 == 0 && z2 == 0:
-									continue
-								var pos2d2 = pos2d + Vector2(x2, z2) * voxelSize
-								var pos3d2 = pos3d + Vector3(x2, y2, z2) * voxelSize
-								var data3d2 = dataGen.get_data_3d_roomInside(data2d, pos2d2, pos3d2)
-								if data3d2.roomInside3d:
-									adjacence = true
-									break
-							if adjacence:
-								break
-						if adjacence:
-							break
+					# var adjacence = false
+					# var searchExtents = [Vector3(-2, -2, -2), Vector3(2, 2, 2)]
+					# if data3d.isFloor:
+					# 	searchExtents = [Vector3(-2, -1, -2), Vector3(2, 3, 2)]
+					# elif data3d.isCeiling:
+					# 	searchExtents = [Vector3(-2, -4, -2), Vector3(2, 1, 2)]
+					# if data3d.isHighCeiling:
+					# 	searchExtents = [Vector3(-2, -5, -2), Vector3(2, 1, 2)]
+					# for x2 in range(searchExtents[0].x, searchExtents[1].x + 1):
+					# 	for y2 in range(searchExtents[0].y, searchExtents[1].y + 1):
+					# 		for z2 in range(searchExtents[0].z, searchExtents[1].z+ 1):
+					# 			if x2 == 0 && y2 == 0 && z2 == 0:
+					# 				continue
+					# 			var pos2d2 = pos2d + Vector2(x2, z2) * voxelSize
+					# 			var pos3d2 = pos3d + Vector3(x2, y2, z2) * voxelSize
+					# 			var data3d2 = dataGen.get_data_3d_roomInside(data2d, pos2d2, pos3d2)
+					# 			if data3d2.roomInside3d:
+					# 				adjacence = true
+					# 				break
+					# 		if adjacence:
+					# 			break
+					# 	if adjacence:
+					# 		break
+					
+					# With adjacence
+					# Created 147198 voxels
+					# Time: 33769 ms
 
-					if adjacence:
-						# Create a new BoxMesh
-						var box = BoxMesh.new()
-						box.size = Vector3(voxelSize, voxelSize, voxelSize)
-						# If is floor or ceiling, make it much taller
-						if data3d.isFloor or data3d.isCeiling:
-							box.size.y *= 10
-						# Create a new MeshInstance
-						var mesh = MeshInstance3D.new()
-						mesh.mesh = box
-						# Assign a random color to the box
-						var shade = abs(pos3d.y) / 5
-						var color = Color(shade, shade, shade)
-						mesh.material_override = StandardMaterial3D.new()
-						mesh.material_override.albedo_color = color
-						# Position the mesh
-						var posJittered = data3d.posJittered
-						# If is floor or ceiling, make move it down or up
-						if data3d.isFloor:
-							posJittered.y -= voxelSize * 4
-						if data3d.isCeiling:
-							posJittered.y += voxelSize * 4
-						mesh.transform.origin = posJittered
-						# Add mesh as a child of this node
-						add_child(mesh)
+					# Without adjacence
+					# Created 155964 voxels
+					# Time: 26563 ms
 
-						# Add collision shape
-						# var shape = CollisionShape3D.new()
-						# shape.shape = box
-						# mesh.add_child(shape)
+					# Each time, look up repeatedly until it finds air, then merge all those y blocks into one and skip future calls
+					# for y2 in range(5):
+					# 	var pos3d2 = pos3d + Vector3(0, y2 * voxelSize, 0) 
+					# 	var data3d2 = dataGen.get_data_3d_roomInside(data2d, pos2d, pos3d2)
+					# 	if not data3d2.roomInside3d:
+					# 		break
+					# 	y = y2
 
-						# Increase voxel count
-						nVoxels += 1
+					# if adjacence:
+					# Create a new BoxMesh
+					var box = BoxMesh.new()
+					box.size = Vector3(voxelSize, voxelSize, voxelSize)
+					# If is floor or ceiling, make it much taller
+					if data3d.isFloor or data3d.isCeiling:
+						box.size.y *= 10
+					# Create a new MeshInstance
+					var mesh = MeshInstance3D.new()
+					mesh.mesh = box
+					# Color from dark to light gray as height increases
+					var shade = y / extents.y * 0.5
+					var color = Color(0.5 + shade, 0.4 + shade, 0.3 + shade)
+					# Give the color horizontal lines from noise to make it look more natural
+					var noiseHeight = data2d.noiseHeight
+					var noiseShade = noiseHeight.get_noise_1d(y * 20 + x * 0.01 + z + 0.01) * 0.2
+					color += Color(noiseShade, noiseShade, noiseShade)
+					# Add brown colors based on 2d noise
+					var noiseColor = abs(noiseHeight.get_noise_2dv(pos2d * 0.1))
+					color += Color(noiseColor, noiseColor * 0.5, 0) * 0.1
+					# Add blue magic lines based on 3d noise
+					if not data3d.isFloor:
+						var noiseMagic = noiseHeight.get_noise_3dv(pos3d * 2)
+						color += Color(0, 0, 1 if abs(noiseMagic) < 0.05 else 0)
 
+					mesh.material_override = StandardMaterial3D.new()
+					mesh.material_override.albedo_color = color
+					# Position the mesh
+					var posJittered = data3d.posJittered
+					# If is floor or ceiling, make move it down or up
+					if data3d.isFloor:
+						posJittered.y -= voxelSize * 4
+					if data3d.isCeiling:
+						posJittered.y += voxelSize * 4
+					mesh.transform.origin = posJittered
+					# Add mesh as a child of this node
+					add_child(mesh)
+
+					# Add collision shape
+					# var shape = CollisionShape3D.new()
+					# shape.shape = box
+					# mesh.add_child(shape)
+
+					# Increase voxel count
+					nVoxels += 1
+
+		# Delay 0.1 seconds with await
+		# await get_tree().create_timer(0.1).timeout
+	
 	print("Created ", nVoxels, " voxels")
 	print("Time: ", Time.get_ticks_msec() - timeStart, " ms")
