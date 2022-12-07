@@ -16,10 +16,18 @@ transform = Transform3D(0.974761, 0.0943496, -0.202333, 6.09165e-10, 0.906308, 0
 current = true
 script = ExtResource("2_3e13j")
 
+[node name="OmniLight3D" type="OmniLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -1)
+shadow_enabled = true
+omni_range = 25.0
+
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
 transform = Transform3D(0.866025, -0.353553, 0.353553, 0, 0.707107, 0.707107, -0.5, -0.612372, 0.612372, 4.53756, 2.12132, -0.0423937)
+shadow_enabled = true
 
 [node name="Character" type="MeshInstance3D" parent="."]
 transform = Transform3D(0.3, 0, 0, 0, 0.3, 0, 0, 0, 0.3, 0, 0, 0)
 mesh = ExtResource("3_o8nm8")
 surface_material_override/0 = SubResource("StandardMaterial3D_32hhh")
+
+[node name="VoxelGI" type="VoxelGI" parent="."]

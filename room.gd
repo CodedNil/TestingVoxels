@@ -173,7 +173,7 @@ func _ready():
 					var aboveVoxel = dataGen.get_data_3d_roomInside(data2d, pos2d, pos3d + Vector3(0, voxelSize, 0))
 					var aboveAir = aboveVoxel.roomInside3d
 
-					if aboveAir:
+					# if aboveAir:
 						# Subdivide voxel into 8
 
 					# if adjacence:
