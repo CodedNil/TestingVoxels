@@ -1,7 +1,7 @@
 extends Node3D
 
 const extents = Vector3(70, 35, 70)
-const voxelSize = 0.5
+const voxelSize = 1
 
 
 # Create noise generator class that can be initialised then have functions within
@@ -168,6 +168,13 @@ func _ready():
 					# 	if not data3d2.roomInside3d:
 					# 		break
 					# 	y = y2
+
+					# If directly adjacent to air, split voxel into 8
+					var aboveVoxel = dataGen.get_data_3d_roomInside(data2d, pos2d, pos3d + Vector3(0, voxelSize, 0))
+					var aboveAir = aboveVoxel.roomInside3d
+
+					if aboveAir:
+						# Subdivide voxel into 8
 
 					# if adjacence:
 					# Create a new BoxMesh
