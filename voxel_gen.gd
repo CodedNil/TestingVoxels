@@ -138,8 +138,16 @@ func renderVoxel(pos2d, pos3d, data2d, data3d, size):
 	nVoxels += 1
 
 
+# Count n subdivisions at each level
+var nSubdivisions = {}
+
 # Subdivide a voxel into 8 smaller voxels, potentially subdivide those further
 func subdivideVoxel(pos3d, voxelSize):
+	# Add count
+	if voxelSize not in nSubdivisions:
+		nSubdivisions[voxelSize] = 0
+	nSubdivisions[voxelSize] += 1
+
 	# If voxel is too small, render it
 	if voxelSize <= smallestVoxelSize:
 		var pos2d = Vector2(pos3d.x, pos3d.z)
@@ -164,18 +172,15 @@ func subdivideVoxel(pos3d, voxelSize):
 					)
 					if data3d.roomInside3d:
 						nAirVoxels += 1
-						if nAirVoxels > maxAirVoxels:
-							break
-				if nAirVoxels > maxAirVoxels:
-					break
-			if nAirVoxels > maxAirVoxels:
-				break
 		# If air voxels in threshold range, render it
 		if nAirVoxels <= maxAirVoxels:
 			var pos2d = Vector2(pos3d.x, pos3d.z)
 			var data2d = dataGen.get_data_2d(pos2d)
 			var data3d = dataGen.get_data_3d(data2d, pos2d, pos3d)
 			renderVoxel(pos2d, pos3d, data2d, data3d, voxelSize)
+			return
+		# If fully air, skip
+		if nAirVoxels == 8:
 			return
 	# Otherwise, subdivide it into 8 smaller voxels
 	for x in [-0.5, 0.5]:
@@ -192,6 +197,7 @@ func _ready():
 
 	print("Created ", nVoxels, " voxels")
 	print("Time: ", Time.get_ticks_msec() - timeStart, " ms")
+	print("Subdivisions: ", nSubdivisions)
 
 	# Await 5 seconds then create a new chunk
 	# await get_tree().create_timer(5).timeout
