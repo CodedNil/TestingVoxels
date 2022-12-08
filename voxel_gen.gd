@@ -99,14 +99,9 @@ var dataGen = DataGenerator.new()
 var nVoxels = 0
 var timeStart = Time.get_ticks_msec()
 
+var multiMeshes = {}
 
 func renderVoxel(pos2d, pos3d, data2d, data3d, size):
-	# Create a new BoxMesh
-	var box = BoxMesh.new()
-	box.size = Vector3(size, size, size)
-	# Create a new MeshInstance
-	var mesh = MeshInstance3D.new()
-	mesh.mesh = box
 	# Color from dark to light gray as height increases
 	var shade = pos3d.y / 30
 	var color = Color(0.5 + shade, 0.4 + shade, 0.3 + shade)
@@ -122,13 +117,8 @@ func renderVoxel(pos2d, pos3d, data2d, data3d, size):
 		var noiseMagic = noiseHeight.get_noise_3dv(pos3d * 2)
 		color += Color(0, 0, 1 if abs(noiseMagic) < 0.05 else 0)
 
-	mesh.material_override = StandardMaterial3D.new()
-	mesh.material_override.albedo_color = color
-	# Position the mesh
-	var posJittered = data3d.posJittered
-	mesh.transform.origin = posJittered
-	# Add mesh as a child of this node
-	add_child(mesh)
+	# Add mesh to multi mesh
+	multiMeshes[size].append([data3d.posJittered, color])
 
 	# Add collision shape
 	# var shape = CollisionShape3D.new()
@@ -193,11 +183,43 @@ func subdivideVoxel(pos3d, voxelSize):
 
 
 func _ready():
+	# Get subdivisions from chunk size down to smallest voxel size, halving each time
+	var cVoxelSize = chunkSize
+	while cVoxelSize > smallestVoxelSize:
+		cVoxelSize /= 2
+
+		if cVoxelSize <= largestVoxelSize:
+			# Create the multi mesh instance
+			var multiMesh = MultiMesh.new()
+			multiMesh.transform_format = MultiMesh.TRANSFORM_3D
+			multiMesh.use_colors = true
+			multiMesh.use_custom_data  = false
+			multiMesh.instance_count = 100000
+			multiMesh.mesh = BoxMesh.new()
+			multiMesh.mesh.size = Vector3(cVoxelSize, cVoxelSize, cVoxelSize)
+			var meshInstance = MultiMeshInstance3D.new()
+			meshInstance.multimesh = multiMesh
+			# Add material
+			meshInstance.material_override = StandardMaterial3D.new()
+			meshInstance.material_override.albedo_color = Color(1, 1, 1)
+			meshInstance.material_override.vertex_color_use_as_albedo = true
+			# Add to scene
+			add_child(meshInstance)
+			multiMeshes[cVoxelSize] = [multiMesh]
+	
 	subdivideVoxel(Vector3(0, 0, 0), chunkSize)
 
 	print("Created ", nVoxels, " voxels")
 	print("Time: ", Time.get_ticks_msec() - timeStart, " ms")
 	print("Subdivisions: ", nSubdivisions)
+	# Count number of voxels at each size, and set instance count, and create the meshes
+	for size in multiMeshes:
+		print("Size: ", size, " n: ", len(multiMeshes[size]))
+		multiMeshes[size][0].instance_count = len(multiMeshes[size])
+		for i in range(len(multiMeshes[size])):
+			if i > 0:
+				multiMeshes[size][0].set_instance_transform(i, Transform3D(Basis(), multiMeshes[size][i][0]))
+				multiMeshes[size][0].set_instance_color(i, multiMeshes[size][i][1])
 
 	# Await 5 seconds then create a new chunk
 	# await get_tree().create_timer(5).timeout
