@@ -1,6 +1,6 @@
 extends Node3D
 
-const chunkSize = 32.0
+const chunkSize = 16.0
 const largestVoxelSize = 2.0
 const smallestVoxelSize = 0.25
 
@@ -95,109 +95,143 @@ class DataGenerator:
 		}
 
 
-var dataGen = DataGenerator.new()
-var nVoxels = 0
-var timeStart = Time.get_ticks_msec()
-
-func renderVoxel(pos2d, pos3d, data2d, data3d, size):
-	# Color from dark to light gray as height increases
-	var shade = pos3d.y / 30
-	var color = Color(0.5 + shade, 0.4 + shade, 0.3 + shade)
-	# Give the color horizontal lines from noise to make it look more natural
-	var noiseHeight = data2d.noiseHeight
-	var noiseShade = noiseHeight.get_noise_1d(pos3d.y * 20 + pos3d.x * 0.01 + pos3d.z + 0.01) * 0.2
-	color += Color(noiseShade, noiseShade, noiseShade)
-	# Add brown colors based on 2d noise
-	var noiseColor = abs(noiseHeight.get_noise_2dv(pos2d * 0.1))
-	color += Color(noiseColor, noiseColor * 0.5, 0) * 0.1
-	# Add blue magic lines based on 3d noise
-	if not data3d.isFloor:
-		var noiseMagic = noiseHeight.get_noise_3dv(pos3d * 2)
-		color += Color(0, 0, 1 if abs(noiseMagic) < 0.05 else 0)
-
-	# Create a new BoxMesh
-	var box = BoxMesh.new()
-	box.size = Vector3(size, size, size)
-	# Create a new MeshInstance
-	var mesh = MeshInstance3D.new()
-	mesh.mesh = box
-	mesh.material_override = StandardMaterial3D.new()
-	mesh.material_override.albedo_color = color
-	# Position the mesh
-	var posJittered = data3d.posJittered
-	mesh.transform.origin = posJittered
-	# Add mesh as a child of this node
-	add_child(mesh)
-
-	# Add collision shape
-	# var shape = CollisionShape3D.new()
-	# shape.shape = box
-	# mesh.add_child(shape)
-
-	nVoxels += 1
+# Chunk class
+class Chunk extends Node3D:
+	var dataGen = DataGenerator.new()
+	
+	var pos = Vector3(0, 0, 0)
+	var nCubes = 0
+	# Store the cubes at each division level
+	var cubes = {}
+	var meshes = []
 
 
-# Count n subdivisions at each level
-var nSubdivisions = {}
+	# Create a chunk at a position
+	func _init(pos):
+		self.pos = pos
+		self.subdivideVoxel(pos, chunkSize)
 
-# Subdivide a voxel into 8 smaller voxels, potentially subdivide those further
-func subdivideVoxel(pos3d, voxelSize):
-	# Add count
-	if voxelSize not in nSubdivisions:
-		nSubdivisions[voxelSize] = 0
-	nSubdivisions[voxelSize] += 1
 
-	# If voxel is too small, render it
-	if voxelSize <= smallestVoxelSize:
-		var pos2d = Vector2(pos3d.x, pos3d.z)
-		var data2d = dataGen.get_data_2d(pos2d)
-		var data3d = dataGen.get_data_3d(data2d, pos2d, pos3d)
-		# If outside the room, render
-		if not data3d.roomInside3d:
-			renderVoxel(pos2d, pos3d, data2d, data3d, voxelSize)
-		return
+	func renderVoxel(pos2d, pos3d, data2d, data3d, size):
+		# Color from dark to light gray as height increases
+		var shade = pos3d.y / 30
+		var color = Color(0.5 + shade, 0.4 + shade, 0.3 + shade)
+		# Give the color horizontal lines from noise to make it look more natural
+		var noiseHeight = data2d.noiseHeight
+		var noiseShade = noiseHeight.get_noise_1d(pos3d.y * 20 + pos3d.x * 0.01 + pos3d.z + 0.01) * 0.2
+		color += Color(noiseShade, noiseShade, noiseShade)
+		# Add brown colors based on 2d noise
+		var noiseColor = abs(noiseHeight.get_noise_2dv(pos2d * 0.1))
+		color += Color(noiseColor, noiseColor * 0.5, 0) * 0.1
+		# Add blue magic lines based on 3d noise
+		if not data3d.isFloor:
+			var noiseMagic = noiseHeight.get_noise_3dv(pos3d * 2)
+			color += Color(0, 0, 1 if abs(noiseMagic) < 0.05 else 0)
 
-	if voxelSize <= largestVoxelSize:
-		# Calculate how much of the voxel is air
-		var nAirVoxels = 0
-		var maxAirVoxels = 4 if voxelSize == 0.5 else 2 if voxelSize == 1 else 0
-		for x in [-0.5, 0.5]:
-			for z in [-0.5, 0.5]:
-				var pos2d = Vector2(pos3d.x + x * voxelSize, pos3d.z + z * voxelSize)
-				var data2d = dataGen.get_data_2d(pos2d)
-				for y in [-0.5, 0.5]:
-					var data3d = dataGen.get_data_3d_roomInside(
-						data2d, pos2d, pos3d + Vector3(x, y, z) * voxelSize
-					)
-					if data3d.roomInside3d:
-						nAirVoxels += 1
-		# If air voxels in threshold range, render it
-		if nAirVoxels <= maxAirVoxels:
+		# Create a new BoxMesh
+		var box = BoxMesh.new()
+		box.size = Vector3(size, size, size)
+		# Create a new MeshInstance
+		var mesh = MeshInstance3D.new()
+		mesh.mesh = box
+		mesh.material_override = StandardMaterial3D.new()
+		mesh.material_override.albedo_color = color
+		# Position the mesh
+		var posJittered = data3d.posJittered
+		mesh.transform.origin = posJittered
+		# Add mesh as a child of this node
+		add_child(mesh)
+		meshes.append(mesh)
+
+		# Add collision shape
+		# var shape = CollisionShape3D.new()
+		# shape.shape = box
+		# mesh.add_child(shape)
+
+		nCubes += 1
+
+	# Subdivide a voxel into 8 smaller voxels, potentially subdivide those further
+	func subdivideVoxel(pos3d, voxelSize):
+		# Add count
+		if voxelSize not in cubes:
+			cubes[voxelSize] = 0
+		cubes[voxelSize] += 1
+
+		# If voxel is too small, render it
+		if voxelSize <= smallestVoxelSize:
 			var pos2d = Vector2(pos3d.x, pos3d.z)
 			var data2d = dataGen.get_data_2d(pos2d)
 			var data3d = dataGen.get_data_3d(data2d, pos2d, pos3d)
-			renderVoxel(pos2d, pos3d, data2d, data3d, voxelSize)
+			# If outside the room, render
+			if not data3d.roomInside3d:
+				renderVoxel(pos2d, pos3d, data2d, data3d, voxelSize)
 			return
-		# If fully air, skip
-		if nAirVoxels == 8:
-			return
-	# Otherwise, subdivide it into 8 smaller voxels
-	for x in [-0.5, 0.5]:
-		for y in [-0.5, 0.5]:
-			for z in [-0.5, 0.5]:
-				var nVoxelSize = voxelSize / 2
-				var pos2 = pos3d + Vector3(x, y, z) * nVoxelSize
 
-				subdivideVoxel(pos2, nVoxelSize)
+		if voxelSize <= largestVoxelSize:
+			# Calculate how much of the voxel is air
+			var nAirVoxels = 0
+			var maxAirVoxels = 4 if voxelSize == 0.5 else 2 if voxelSize == 1 else 0
+			for x in [-0.5, 0.5]:
+				for z in [-0.5, 0.5]:
+					var pos2d = Vector2(pos3d.x + x * voxelSize, pos3d.z + z * voxelSize)
+					var data2d = dataGen.get_data_2d(pos2d)
+					for y in [-0.5, 0.5]:
+						var data3d = dataGen.get_data_3d_roomInside(
+							data2d, pos2d, pos3d + Vector3(x, y, z) * voxelSize
+						)
+						if data3d.roomInside3d:
+							nAirVoxels += 1
+			# If air voxels in threshold range, render it
+			if nAirVoxels <= maxAirVoxels:
+				var pos2d = Vector2(pos3d.x, pos3d.z)
+				var data2d = dataGen.get_data_2d(pos2d)
+				var data3d = dataGen.get_data_3d(data2d, pos2d, pos3d)
+				renderVoxel(pos2d, pos3d, data2d, data3d, voxelSize)
+				return
+			# If fully air, skip
+			if nAirVoxels == 8:
+				return
+		# Otherwise, subdivide it into 8 smaller voxels
+		for x in [-0.5, 0.5]:
+			for y in [-0.5, 0.5]:
+				for z in [-0.5, 0.5]:
+					var nVoxelSize = voxelSize / 2
+					var pos2 = pos3d + Vector3(x, y, z) * nVoxelSize
+
+					subdivideVoxel(pos2, nVoxelSize)
 
 
-func _ready():
-	subdivideVoxel(Vector3(0, 0, 0), chunkSize)
+var chunks = {}
+# func _ready():
+# 	# Create chunk
+# 	var timeStart = Time.get_ticks_msec()
+# 	var chunk = Chunk.new(Vector3(0, 0, 0))
+# 	add_child(chunk)
 
-	print("Created ", nVoxels, " voxels")
-	print("Time: ", Time.get_ticks_msec() - timeStart, " ms")
-	print("Subdivisions: ", nSubdivisions)
+# 	print("Created ", chunk.nCubes, " voxels")
+# 	print("Time: ", Time.get_ticks_msec() - timeStart, " ms")
+# 	print("Subdivisions: ", chunk.cubes)
 
-	# Await 5 seconds then create a new chunk
-	# await get_tree().create_timer(5).timeout
-	# subdivideVoxel(Vector3(chunkSize, 0, 0), chunkSize)
+# Called every frame. 'delta' is the elapsed time since the previous frame.
+func _process(delta):
+	# Find chunks near the camera that need to be created
+	var camera = get_parent().get_node("Camera3D")
+	var cameraPos = camera.global_transform.origin
+	
+	var cameraChunkPos = Vector3(
+		floor(cameraPos.x / chunkSize) * chunkSize,
+		floor(cameraPos.y / chunkSize) * chunkSize,
+		floor(cameraPos.z / chunkSize) * chunkSize
+	)
+
+	var chunk = chunks.get(cameraChunkPos)
+	if chunk == null:
+		chunk = Chunk.new(cameraChunkPos)
+		add_child(chunk)
+		chunks[cameraChunkPos] = chunk
+	
+	# Remove chunks that are too far away
+	for chunkPos in chunks:
+		if chunkPos.distance_to(cameraPos) > chunkSize * 2:
+			chunks[chunkPos].queue_free()
+			chunks.erase(chunkPos)
