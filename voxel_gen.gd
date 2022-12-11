@@ -118,7 +118,8 @@ class Chunk extends Node3D:
 	# Create a chunk at a position
 	func _init(pos):
 		self.pos = pos
-		self.subdivideVoxel(pos, chunkSize)
+		# call_deferred("subdivideVoxel", pos, chunkSize)
+		subdivideVoxel(pos, chunkSize)
 
 
 	func renderVoxel(pos2d, pos3d, data2d, data3d, size):
@@ -211,10 +212,11 @@ class Chunk extends Node3D:
 					if nVoxelSize < chunksVoxelSize:
 						heldSubdivisons.append([pos2, nVoxelSize])
 					else:
+						# await get_tree().create_timer(0.1)
 						subdivideVoxel(pos2, nVoxelSize)
 
 	# Release subdivisions, if any
-	func releaseSubdivisions():
+	func releaseSubdivisionsRun():
 		if heldSubdivisons.size() == 0:
 			return
 		var newHelds = []
@@ -222,22 +224,16 @@ class Chunk extends Node3D:
 			if subdivision[1] < chunksVoxelSize:
 				newHelds.append(subdivision)
 			else:
+				# await get_tree().create_timer(0.1)
 				subdivideVoxel(subdivision[0], subdivision[1])
 		heldSubdivisons = newHelds
 
+	func releaseSubdivisions():
+		# call_deferred("releaseSubdivisionsRun")
+		releaseSubdivisionsRun()
+
 
 var chunks = {}
-# func _ready():
-# 	# Create chunk
-# 	var timeStart = Time.get_ticks_msec()
-# 	var chunk = Chunk.new(Vector3(0, 0, 0))
-# 	add_child(chunk)
-
-# 	print("Created ", chunk.nCubes, " voxels")
-# 	print("Time: ", Time.get_ticks_msec() - timeStart, " ms")
-# 	print("Subdivisions: ", chunk.cubes)
-
-# Called every frame. 'delta' is the elapsed time since the previous frame.
 const renderDistance = 2
 func _process(delta):
 	# Find chunks near the camera that need to be created
