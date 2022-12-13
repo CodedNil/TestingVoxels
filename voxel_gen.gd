@@ -107,6 +107,7 @@ class Chunk extends Node3D:
 	# Store the cubes at each division level
 	var cubes = {}
 	var meshes = []
+	var multiMeshes = {}
 	# Chunks current subdivision level
 	var subdivisionLevel = 0
 	var chunksVoxelSize = largestVoxelSize
@@ -114,12 +115,46 @@ class Chunk extends Node3D:
 	# Hold back subdivisions until you get closer
 	var heldSubdivisons = []
 
-
 	# Create a chunk at a position
 	func _init(pos):
 		self.pos = pos
-		# call_deferred("subdivideVoxel", pos, chunkSize)
+		# Create multi meshes for each subdivision level
+		var cVoxelSize = chunkSize
+		while cVoxelSize > smallestVoxelSize:
+			cVoxelSize /= 2
+	
+			if cVoxelSize <= largestVoxelSize:
+				# Create the multi mesh instance
+				var multiMesh = MultiMesh.new()
+				multiMesh.transform_format = MultiMesh.TRANSFORM_3D
+				multiMesh.use_colors = true
+				multiMesh.use_custom_data  = false
+				multiMesh.instance_count = 100000
+				multiMesh.mesh = BoxMesh.new()
+				multiMesh.mesh.size = Vector3(cVoxelSize, cVoxelSize, cVoxelSize)
+				var meshInstance = MultiMeshInstance3D.new()
+				meshInstance.multimesh = multiMesh
+				# Add material
+				meshInstance.material_override = StandardMaterial3D.new()
+				meshInstance.material_override.albedo_color = Color(1, 1, 1)
+				meshInstance.material_override.vertex_color_use_as_albedo = true
+				# Add to scene
+				add_child(meshInstance)
+				multiMeshes[cVoxelSize] = [multiMesh]
+		
+		# Create the first subdivision
 		subdivideVoxel(pos, chunkSize)
+		rerenderMultiMeshes()
+
+	func rerenderMultiMeshes():
+		# Count number of voxels at each size, and set instance count, and create the meshes
+		for size in multiMeshes:
+			if multiMeshes[size][0].instance_count != len(multiMeshes[size]):
+				multiMeshes[size][0].instance_count = len(multiMeshes[size])
+				for i in range(len(multiMeshes[size])):
+					if i > 0:
+						multiMeshes[size][0].set_instance_transform(i, Transform3D(Basis(), multiMeshes[size][i][0]))
+						multiMeshes[size][0].set_instance_color(i, multiMeshes[size][i][1])
 
 
 	func renderVoxel(pos2d, pos3d, data2d, data3d, size):
@@ -138,20 +173,8 @@ class Chunk extends Node3D:
 			var noiseMagic = noiseHeight.get_noise_3dv(pos3d * 2)
 			color += Color(0, 0, 1 if abs(noiseMagic) < 0.05 else 0)
 
-		# Create a new BoxMesh
-		var box = BoxMesh.new()
-		box.size = Vector3(size, size, size)
-		# Create a new MeshInstance
-		var mesh = MeshInstance3D.new()
-		mesh.mesh = box
-		mesh.material_override = StandardMaterial3D.new()
-		mesh.material_override.albedo_color = color
-		# Position the mesh
-		var posJittered = data3d.posJittered
-		mesh.transform.origin = posJittered
-		# Add mesh as a child of this node
-		add_child(mesh)
-		meshes.append(mesh)
+		# Add mesh to multi mesh
+		multiMeshes[size].append([data3d.posJittered, color])
 
 		# Add collision shape
 		# var shape = CollisionShape3D.new()
@@ -212,25 +235,24 @@ class Chunk extends Node3D:
 					if nVoxelSize < chunksVoxelSize:
 						heldSubdivisons.append([pos2, nVoxelSize])
 					else:
-						# await get_tree().create_timer(0.1)
 						subdivideVoxel(pos2, nVoxelSize)
 
 	# Release subdivisions, if any
 	func releaseSubdivisionsRun():
-		if heldSubdivisons.size() == 0:
-			return
 		var newHelds = []
 		for subdivision in heldSubdivisons:
 			if subdivision[1] < chunksVoxelSize:
 				newHelds.append(subdivision)
 			else:
-				# await get_tree().create_timer(0.1)
 				subdivideVoxel(subdivision[0], subdivision[1])
 		heldSubdivisons = newHelds
 
-	func releaseSubdivisions():
-		# call_deferred("releaseSubdivisionsRun")
+	func releaseSubdivisions(newVoxelSize):
+		if heldSubdivisons.size() == 0:
+			return
+		chunksVoxelSize = newVoxelSize
 		releaseSubdivisionsRun()
+		rerenderMultiMeshes()
 
 
 var chunks = {}
@@ -252,21 +274,20 @@ func _process(delta):
 				var chunkDistance = Vector3(x, y, z).length()
 
 				var renderChunkPos = cameraChunkPos + Vector3(x, y, z) * chunkSize
-				if renderChunkPos.x > 0:
-					var chunk = chunks.get(renderChunkPos)
-					if chunk == null:
-						chunk = Chunk.new(renderChunkPos)
-						add_child(chunk)
-						chunks[renderChunkPos] = chunk
-					else:
-						# Update the chunks subdivisionLevel up to max nQualityLevel, based on how close it is to the camera
-						chunk.subdivisionLevel = min(nQualityLevels, round(nQualityLevels - chunkDistance))
-						# Update the chunksVoxelSize, starts at largestVoxelSize then halved each subdivision
-						var newVoxelSize = largestVoxelSize / pow(2, chunk.subdivisionLevel)
-						if chunk.chunksVoxelSize != newVoxelSize:
-							chunk.chunksVoxelSize = newVoxelSize
-							# Release held subdivisions
-							chunk.releaseSubdivisions()
+				# if renderChunkPos.x > 0:
+				var chunk = chunks.get(renderChunkPos)
+				if chunk == null:
+					chunk = Chunk.new(renderChunkPos)
+					add_child(chunk)
+					chunks[renderChunkPos] = chunk
+				else:
+					# Update the chunks subdivisionLevel up to max nQualityLevel, based on how close it is to the camera
+					chunk.subdivisionLevel = min(nQualityLevels, round(nQualityLevels - chunkDistance))
+					# Update the chunksVoxelSize, starts at largestVoxelSize then halved each subdivision
+					var newVoxelSize = largestVoxelSize / pow(2, chunk.subdivisionLevel)
+					if chunk.chunksVoxelSize != newVoxelSize:
+						# Release held subdivisions
+						chunk.releaseSubdivisions(newVoxelSize)
 	
 	# Remove chunks that are too far away
 	for chunkPos in chunks:
