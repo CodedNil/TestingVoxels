@@ -1,6 +1,5 @@
 extends Node3D
 
-# Constants for chunk and voxel sizes
 const chunkSize = 16.0
 const largestVoxelSize = 4.0
 const smallestVoxelSize = 0.25
@@ -13,49 +12,6 @@ var nQualityLevels = log(largestVoxelSize / smallestVoxelSize) / log(2)
 class DataGenerator:
 	# A function to get a noise value with given frequency and seed, caches the fastnoiselite
 	var noises = {}
-
-	# Voronoi noise creation
-
-	# Procedural white noise
-	func hash2(p):
-		return Vector2(
-			fposmod(sin(p.dot(Vector2(127.1, 311.7))) * 43758.5453, 1.0),
-			fposmod(sin(p.dot(Vector2(269.5, 183.3))) * 43758.5453, 1.0)
-		)
-
-	func voronoi(p):
-		var n = p.floor()
-		var f = Vector2(fposmod(p.x, 1.0), fposmod(p.y, 1.0))
-
-		# First pass: regular voronoi
-		var mg = Vector2()
-		var mr = Vector2()
-
-		var md = 8.0
-		for j in range(-1, 2):
-			for i in range(-1, 2):
-				var g = Vector2(i, j)
-				var o = hash2(n + g)
-				var r = g + o - f
-				var d = r.dot(r)
-
-				if d < md:
-					md = d
-					mr = r
-					mg = g
-
-		# Second pass: distance to borders
-		md = 8.0
-		for j in range(-2, 3):
-			for i in range(-2, 3):
-				var g = mg + Vector2(i, j)
-				var o = hash2(n + g)
-				var r = g + o - f
-
-				if (mr - r).dot(mr - r) > 0.00001:
-					md = min(md, (0.5 * (mr + r)).dot((r - mr).normalized()))
-
-		return Vector3(md, mr.x, mr.y)
 
 	func getNoise(frequency, seed):
 		var key = str(frequency) + ";" + str(seed)
@@ -74,43 +30,40 @@ class DataGenerator:
 		var noiseHeight = getNoise(0.03, 1234)
 		var height = noiseHeight.get_noise_2dv(pos2d) * 2
 
-		# # Temperature scale, between 0 cold and 1 hot
-		# var temperature = 0.5 + getNoise(0.03, 1234).get_noise_2dv(pos2d) * 0.5
+		# Temperature scale, between 0 cold and 1 hot
+		var temperature = 0.5 + getNoise(0.03, 1234).get_noise_2dv(pos2d) * 0.5
 
-		# # Get data for the room
-		# # Get angle from center with x and z, from -pi to pi
-		# var roomAngle = pos2d.angle_to_point(Vector2(0, 0))
-		# # Get 2d distance from center with x and z
-		# var roomDist = pos2d.length()
+		# Get data for the room
+		# Get angle from center with x and z, from -pi to pi
+		var roomAngle = pos2d.angle_to_point(Vector2(0, 0))
+		# Get 2d distance from center with x and z
+		var roomDist = pos2d.length()
 
-		# Get voronoi noise at location
-		var voronoiNoise = voronoi(pos2d * 0.1)
+		# Calculate room size, based on noise from the angle
+		var roomSize0 = 20 + getNoise(0.3, 123).get_noise_1d(-PI) * 20
+		var roomSize = 20 + getNoise(0.3, 123).get_noise_1d(roomAngle) * 20
+		# For the last 25% of the angle, so from half pi to pi, lerp towards roomSize0
+		var roomSizeLerp = (
+			lerp(roomSize, roomSize0, (roomAngle - PI / 2) / (PI / 2))
+			if roomAngle > PI / 2
+			else roomSize
+		)
 
-		# # Calculate room size, based on noise from the angle
-		# var roomSize0 = 20 + getNoise(0.3, 123).get_noise_1d(-PI) * 20
-		# var roomSize = 20 + getNoise(0.3, 123).get_noise_1d(roomAngle) * 20
-		# # For the last 25% of the angle, so from half pi to pi, lerp towards roomSize0
-		# var roomSizeLerp = (
-		# 	lerp(roomSize, roomSize0, (roomAngle - PI / 2) / (PI / 2))
-		# 	if roomAngle > PI / 2
-		# 	else roomSize
-		# )
-
-		# # Calculate if we are inside the room
-		# var roomAdjacence2d = roomDist < roomSizeLerp + 2
+		# Calculate if we are inside the room
+		var roomAdjacence2d = roomDist < roomSizeLerp + 2
 
 		return {
 			"noiseHeight": noiseHeight,
 			"height": height,
-			# "temperature": temperature,
-			# "roomAdjacence2d": roomAdjacence2d,
-			# "roomDist": roomDist,
-			# "roomSize": roomSizeLerp,
-			"voronoiNoise": voronoiNoise,
+			"temperature": temperature,
+			"roomAdjacence2d": roomAdjacence2d,
+			"roomDist": roomDist,
+			"roomSize": roomSizeLerp,
 		}
 
 	func get_data_3d(data2d, pos2d, pos3d):
 		var data3d_roomInside = get_data_3d_roomInside(data2d, pos2d, pos3d)
+		var roomWayOutside3d = data3d_roomInside.roomDist3d > data2d.roomSize + 2
 
 		# Jitter the pos3d
 		var posJittered = Vector3(pos3d.x, pos3d.y, pos3d.z)
@@ -122,23 +75,26 @@ class DataGenerator:
 
 		# Get if voxel is floor or ceiling, if y close to 0 or above room height
 		var isFloor = pos3d.y < -2
+		var isCeiling = pos3d.y > 2
+		var isHighCeiling = pos3d.y > 8
 
 		return {
 			"posJittered": posJittered,
+			"roomDist3d": data3d_roomInside.roomDist3d,
 			"roomInside3d": data3d_roomInside.roomInside3d,
+			"roomWayOutside3d": roomWayOutside3d,
 			"isFloor": isFloor,
+			"isCeiling": isCeiling,
+			"isHighCeiling": isHighCeiling,
 		}
 
 	func get_data_3d_roomInside(data2d, pos2d, pos3d):
-		# var roomHeight = 4 if pos3d.y < 0 else 2 + getNoise(0.1, 12345).get_noise_2dv(pos2d) * 0.5
-		# var roomDist3d = Vector3(pos3d.x, pos3d.y * roomHeight, pos3d.z).length()
-		# var roomInside3d = roomDist3d < data2d.roomSize
-		
-		var newRoomInside = data2d.voronoiNoise.x > 0.07
-
+		var roomHeight = 4 if pos3d.y < 0 else 2 + getNoise(0.1, 12345).get_noise_2dv(pos2d) * 0.5
+		var roomDist3d = Vector3(pos3d.x, pos3d.y * roomHeight, pos3d.z).length()
+		var roomInside3d = roomDist3d < data2d.roomSize
 		return {
-			# "roomDist3d": roomDist3d,
-			"roomInside3d": newRoomInside,
+			"roomDist3d": roomDist3d,
+			"roomInside3d": roomInside3d,
 		}
 
 
@@ -274,10 +230,6 @@ class Chunk extends Node3D:
 				for z in [-0.5, 0.5]:
 					var nVoxelSize = voxelSize / 2
 					var pos2 = pos3d + Vector3(x, y, z) * nVoxelSize
-
-					# Temporarily only respsect y == 0
-					if nVoxelSize < 4 and abs(pos2.y) > 1:
-						continue
 
 					# Hold back some subdivisions to render later
 					if nVoxelSize < chunksVoxelSize:
