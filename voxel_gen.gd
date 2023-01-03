@@ -161,6 +161,8 @@ class Chunk extends Node3D:
 		# Color from dark to light gray as height increases
 		var shade = pos3d.y / 30
 		var color = Color(0.5 + shade, 0.4 + shade, 0.3 + shade)
+		# Color from subdivisionLevel, red to green
+		color = Color(1 - subdivisionLevel / 4, subdivisionLevel / 4, 0)
 		# Give the color horizontal lines from noise to make it look more natural
 		var noiseHeight = data2d.noiseHeight
 		var noiseShade = noiseHeight.get_noise_1d(pos3d.y * 20 + pos3d.x * 0.01 + pos3d.z + 0.01) * 0.2
