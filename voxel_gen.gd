@@ -5,7 +5,7 @@ const largestVoxelSize = 4.0
 const smallestVoxelSize = 0.25
 
 # Get number of quality levels, based on the largest and smallest voxel size
-var nQualityLevels = log(largestVoxelSize / smallestVoxelSize) / log(2)
+const nQualityLevels = log(largestVoxelSize / smallestVoxelSize) / log(2)
 
 
 # Create noise generator class that can be initialised then have functions within
@@ -154,15 +154,14 @@ class Chunk extends Node3D:
 				for i in range(len(multiMeshes[size])):
 					if i > 0:
 						multiMeshes[size][0].set_instance_transform(i, Transform3D(Basis(), multiMeshes[size][i][0]))
+						# var color = Color(1 - subdivisionLevel / nQualityLevels, subdivisionLevel / nQualityLevels, 0)
 						multiMeshes[size][0].set_instance_color(i, multiMeshes[size][i][1])
-
 
 	func renderVoxel(pos2d, pos3d, data2d, data3d, size):
 		# Color from dark to light gray as height increases
 		var shade = pos3d.y / 30
 		var color = Color(0.5 + shade, 0.4 + shade, 0.3 + shade)
 		# Color from subdivisionLevel, red to green
-		color = Color(1 - subdivisionLevel / 4, subdivisionLevel / 4, 0)
 		# Give the color horizontal lines from noise to make it look more natural
 		var noiseHeight = data2d.noiseHeight
 		var noiseShade = noiseHeight.get_noise_1d(pos3d.y * 20 + pos3d.x * 0.01 + pos3d.z + 0.01) * 0.2
@@ -258,7 +257,7 @@ class Chunk extends Node3D:
 
 
 var chunks = {}
-const renderDistance = 2
+const renderDistance = 3
 func _process(delta):
 	# Find chunks near the camera that need to be created
 	var camera = get_parent().get_node("Camera3D")
@@ -276,7 +275,6 @@ func _process(delta):
 				var chunkDistance = Vector3(x, y, z).length()
 
 				var renderChunkPos = cameraChunkPos + Vector3(x, y, z) * chunkSize
-				# if renderChunkPos.x > 0:
 				var chunk = chunks.get(renderChunkPos)
 				if chunk == null:
 					chunk = Chunk.new(renderChunkPos)
@@ -284,7 +282,7 @@ func _process(delta):
 					chunks[renderChunkPos] = chunk
 				else:
 					# Update the chunks subdivisionLevel up to max nQualityLevel, based on how close it is to the camera
-					chunk.subdivisionLevel = min(nQualityLevels, round(nQualityLevels - chunkDistance))
+					chunk.subdivisionLevel = min(nQualityLevels, round(nQualityLevels - chunkDistance + 1))
 					# Update the chunksVoxelSize, starts at largestVoxelSize then halved each subdivision
 					var newVoxelSize = largestVoxelSize / pow(2, chunk.subdivisionLevel)
 					if chunk.chunksVoxelSize != newVoxelSize:
