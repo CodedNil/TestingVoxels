@@ -2,12 +2,14 @@ extends Node3D
 
 const chunkSize = 16.0
 const largestVoxelSize = 4.0
-const smallestVoxelSize = 1.0 #0.25
+const smallestVoxelSize = 0.25
 
 const roomSpacing = 70
 
 const renderDistance = 7
 const renderVerticalBounds = 20
+
+const maxReleasePerFrame = 20 # Max number of subdivisions to release each update frame
 
 # Get number of quality levels, based on the largest and smallest voxel size
 const nQualityLevels = log(largestVoxelSize / smallestVoxelSize) / log(2)
@@ -121,6 +123,7 @@ class Chunk extends Node3D:
 
 	# Hold back subdivisions until you get closer
 	var heldSubdivisons = []
+	var isHoldingSubdivisions = false
 
 	# Create a chunk at a position
 	func _init(initPos):
@@ -248,16 +251,19 @@ class Chunk extends Node3D:
 	# Release subdivisions, if any
 	func releaseSubdivisionsRun():
 		var newHelds = []
+		var nSubdivisions = 0
+		isHoldingSubdivisions = false
 		for subdivision in heldSubdivisons:
-			if subdivision[1] < chunksVoxelSize:
+			if nSubdivisions > maxReleasePerFrame or subdivision[1] < chunksVoxelSize:
 				newHelds.append(subdivision)
 			else:
 				subdivideVoxel(subdivision[0], subdivision[1])
+				nSubdivisions += 1
+		if nSubdivisions >= maxReleasePerFrame:
+			isHoldingSubdivisions = true
 		heldSubdivisons = newHelds
 
 	func releaseSubdivisions(newVoxelSize):
-		if heldSubdivisons.size() == 0:
-			return
 		chunksVoxelSize = newVoxelSize
 		releaseSubdivisionsRun()
 		rerenderMultiMeshes()
@@ -275,9 +281,18 @@ func _process(_delta):
 		floor(cameraPos.z / chunkSize) * chunkSize
 	)
 	print("FPS ", Engine.get_frames_per_second())
-	for x in range(-renderDistance, renderDistance + 1):
-		for y in range(-renderDistance, renderDistance + 1):
-			for z in range(-renderDistance, renderDistance + 1):
+
+	# Only update one chunk per frame max
+	var updatedChunk = false
+	var chunkToRelease = null
+	var chunkToReleaseSize = 0
+	var renderDists = [0]
+	for dist in range(1, renderDistance):
+		renderDists.append(dist)
+		renderDists.append(-dist)
+	for x in renderDists:
+		for z in renderDists:
+			for y in renderDists:
 				# Get chunks distance for quality level
 				var chunkDistance = Vector3(x, y, z).length()
 
@@ -291,15 +306,27 @@ func _process(_delta):
 					chunk = Chunk.new(renderChunkPos)
 					add_child(chunk)
 					chunks[renderChunkPos] = chunk
+					updatedChunk = true
+					break
 				else:
 					# Update the chunks subdivisionLevel up to max nQualityLevel, based on how close it is to the camera
-					chunk.subdivisionLevel = min(nQualityLevels, round(nQualityLevels - chunkDistance + 1))
+					var tarSubdivisionLevel = min(nQualityLevels, round(nQualityLevels - chunkDistance + 1))
+					if chunk.subdivisionLevel < tarSubdivisionLevel and not chunk.isHoldingSubdivisions:
+						chunk.subdivisionLevel += 1
 					# Update the chunksVoxelSize, starts at largestVoxelSize then halved each subdivision
 					var newVoxelSize = largestVoxelSize / pow(2, chunk.subdivisionLevel)
-					if chunk.chunksVoxelSize != newVoxelSize:
-						# Release held subdivisions
-						chunk.releaseSubdivisions(newVoxelSize)
-	
+					if not chunkToRelease or chunkToRelease.nCubes > chunk.nCubes:
+						if (chunk.chunksVoxelSize != newVoxelSize or chunk.isHoldingSubdivisions) and chunk.heldSubdivisons.size() != 0:
+							chunkToReleaseSize = newVoxelSize
+							chunkToRelease = chunk
+			if updatedChunk:
+				break
+		if updatedChunk:
+			break
+	if chunkToRelease != null:
+		# Release held subdivisions
+		chunkToRelease.releaseSubdivisions(chunkToReleaseSize)
+
 	# Remove chunks that are too far away
 	var totalVoxels = 0
 	var totalMeshes = 0
