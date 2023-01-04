@@ -2,7 +2,9 @@ extends Node3D
 
 const chunkSize = 16.0
 const largestVoxelSize = 4.0
-const smallestVoxelSize = 0.25
+const smallestVoxelSize = 1.0 #0.25
+
+const roomSpacing = 50
 
 # Get number of quality levels, based on the largest and smallest voxel size
 const nQualityLevels = log(largestVoxelSize / smallestVoxelSize) / log(2)
@@ -13,14 +15,14 @@ class DataGenerator:
 	# A function to get a noise value with given frequency and seed, caches the fastnoiselite
 	var noises = {}
 
-	func getNoise(frequency, seed):
-		var key = str(frequency) + ";" + str(seed)
+	func getNoise(frequency, nseed):
+		var key = str(frequency) + ";" + str(nseed)
 		if key in noises:
 			return noises[key]
 		else:
 			var noise = FastNoiseLite.new()
 			noise.frequency = frequency
-			noise.seed = seed
+			noise.seed = nseed
 			noises[key] = noise
 			return noise
 
@@ -34,14 +36,21 @@ class DataGenerator:
 		var temperature = 0.5 + getNoise(0.03, 1234).get_noise_2dv(pos2d) * 0.5
 
 		# Get data for the room
+		# Get 2d room center position, pos2d snapped to nearest room spacing point
+		var roomPosition = Vector2(
+			round(pos2d.x / roomSpacing) * roomSpacing,
+			round(pos2d.y / roomSpacing) * roomSpacing
+		)
+		# Get room noise seed, based on room position
+		var roomSeed = roomPosition.x + roomPosition.y * 123
 		# Get angle from center with x and z, from -pi to pi
-		var roomAngle = pos2d.angle_to_point(Vector2(0, 0))
+		var roomAngle = pos2d.angle_to_point(roomPosition)
 		# Get 2d distance from center with x and z
-		var roomDist = pos2d.length()
+		var roomDist = pos2d.distance_to(roomPosition)
 
 		# Calculate room size, based on noise from the angle
-		var roomSize0 = 20 + getNoise(0.3, 123).get_noise_1d(-PI) * 20
-		var roomSize = 20 + getNoise(0.3, 123).get_noise_1d(roomAngle) * 20
+		var roomSize0 = 20 + getNoise(0.3, roomSeed).get_noise_1d(-PI) * 20
+		var roomSize = 20 + getNoise(0.3, roomSeed).get_noise_1d(roomAngle) * 20
 		# For the last 25% of the angle, so from half pi to pi, lerp towards roomSize0
 		var roomSizeLerp = (
 			lerp(roomSize, roomSize0, (roomAngle - PI / 2) / (PI / 2))
@@ -56,6 +65,8 @@ class DataGenerator:
 			"noiseHeight": noiseHeight,
 			"height": height,
 			"temperature": temperature,
+			"roomPosition": roomPosition,
+			"roomSeed": roomSeed,
 			"roomAdjacence2d": roomAdjacence2d,
 			"roomDist": roomDist,
 			"roomSize": roomSizeLerp,
@@ -63,7 +74,6 @@ class DataGenerator:
 
 	func get_data_3d(data2d, pos2d, pos3d):
 		var data3d_roomInside = get_data_3d_roomInside(data2d, pos2d, pos3d)
-		var roomWayOutside3d = data3d_roomInside.roomDist3d > data2d.roomSize + 2
 
 		# Jitter the pos3d
 		var posJittered = Vector3(pos3d.x, pos3d.y, pos3d.z)
@@ -73,24 +83,15 @@ class DataGenerator:
 		posJittered.x += (data2d.noiseHeight.get_noise_2dv(Vector2(pos3d.z, pos3d.y)) * 0.5)
 		posJittered.z += (data2d.noiseHeight.get_noise_2dv(Vector2(pos3d.x, pos3d.y)) * 0.5)
 
-		# Get if voxel is floor or ceiling, if y close to 0 or above room height
-		var isFloor = pos3d.y < -2
-		var isCeiling = pos3d.y > 2
-		var isHighCeiling = pos3d.y > 8
-
 		return {
 			"posJittered": posJittered,
 			"roomDist3d": data3d_roomInside.roomDist3d,
 			"roomInside3d": data3d_roomInside.roomInside3d,
-			"roomWayOutside3d": roomWayOutside3d,
-			"isFloor": isFloor,
-			"isCeiling": isCeiling,
-			"isHighCeiling": isHighCeiling,
 		}
 
 	func get_data_3d_roomInside(data2d, pos2d, pos3d):
 		var roomHeight = 4 if pos3d.y < 0 else 2 + getNoise(0.1, 12345).get_noise_2dv(pos2d) * 0.5
-		var roomDist3d = Vector3(pos3d.x, pos3d.y * roomHeight, pos3d.z).length()
+		var roomDist3d = Vector3(pos3d.x - data2d.roomPosition.x, pos3d.y * roomHeight, pos3d.z - data2d.roomPosition.y).length()
 		var roomInside3d = roomDist3d < data2d.roomSize
 		return {
 			"roomDist3d": roomDist3d,
@@ -116,8 +117,8 @@ class Chunk extends Node3D:
 	var heldSubdivisons = []
 
 	# Create a chunk at a position
-	func _init(pos):
-		self.pos = pos
+	func _init(initPos):
+		pos = initPos
 		# Create multi meshes for each subdivision level
 		var cVoxelSize = chunkSize
 		while cVoxelSize > smallestVoxelSize:
@@ -170,12 +171,13 @@ class Chunk extends Node3D:
 		var noiseColor = abs(noiseHeight.get_noise_2dv(pos2d * 0.1))
 		color += Color(noiseColor, noiseColor * 0.5, 0) * 0.1
 		# Add blue magic lines based on 3d noise
-		if not data3d.isFloor:
+		if pos3d.y > -2:
 			var noiseMagic = noiseHeight.get_noise_3dv(pos3d * 2)
 			color += Color(0, 0, 1 if abs(noiseMagic) < 0.05 else 0)
 
 		# Add mesh to multi mesh
-		multiMeshes[size].append([data3d.posJittered, color])
+		if pos3d.y < 8:
+			multiMeshes[size].append([data3d.posJittered, color])
 
 		# Add collision shape
 		# var shape = CollisionShape3D.new()
@@ -258,7 +260,7 @@ class Chunk extends Node3D:
 
 var chunks = {}
 const renderDistance = 3
-func _process(delta):
+func _process(_delta):
 	# Find chunks near the camera that need to be created
 	var camera = get_parent().get_node("Camera3D")
 	var cameraPos = camera.global_transform.origin
