@@ -4,7 +4,10 @@ const chunkSize = 16.0
 const largestVoxelSize = 4.0
 const smallestVoxelSize = 1.0 #0.25
 
-const roomSpacing = 50
+const roomSpacing = 70
+
+const renderDistance = 7
+const renderVerticalBounds = 20
 
 # Get number of quality levels, based on the largest and smallest voxel size
 const nQualityLevels = log(largestVoxelSize / smallestVoxelSize) / log(2)
@@ -28,12 +31,14 @@ class DataGenerator:
 
 	# Get data for a 2d point in the world
 	func get_data_2d(pos2d):
+		# Base world variables
 		# World height offset for nice gradient slopes, -2 to 2, could have caves going uphill or downhill
-		var noiseHeight = getNoise(0.03, 1234)
-		var height = noiseHeight.get_noise_2dv(pos2d) * 2
-
+		var worldNoise = getNoise(0.03, 1234)
+		var height = worldNoise.get_noise_2dv(pos2d) * 2
 		# Temperature scale, between 0 cold and 1 hot
-		var temperature = 0.5 + getNoise(0.03, 1234).get_noise_2dv(pos2d) * 0.5
+		var temperature = 0.5 + worldNoise.get_noise_2dv(pos2d) * 0.5
+		# Lushness scale, between 0 dry and 1 lush
+		var lushness = 0.5 + worldNoise.get_noise_2dv(pos2d) * 0.5
 
 		# Get data for the room
 		# Get 2d room center position, pos2d snapped to nearest room spacing point
@@ -62,9 +67,10 @@ class DataGenerator:
 		var roomAdjacence2d = roomDist < roomSizeLerp + 2
 
 		return {
-			"noiseHeight": noiseHeight,
+			"worldNoise": worldNoise,
 			"height": height,
 			"temperature": temperature,
+			"lushness": lushness,
 			"roomPosition": roomPosition,
 			"roomSeed": roomSeed,
 			"roomAdjacence2d": roomAdjacence2d,
@@ -80,8 +86,8 @@ class DataGenerator:
 		# Add height to y based on noise
 		posJittered.y += data2d.height
 		# Add jiggle to x and z based on noise
-		posJittered.x += (data2d.noiseHeight.get_noise_2dv(Vector2(pos3d.z, pos3d.y)) * 0.5)
-		posJittered.z += (data2d.noiseHeight.get_noise_2dv(Vector2(pos3d.x, pos3d.y)) * 0.5)
+		posJittered.x += (data2d.worldNoise.get_noise_2dv(Vector2(pos3d.z, pos3d.y)) * 0.5)
+		posJittered.z += (data2d.worldNoise.get_noise_2dv(Vector2(pos3d.x, pos3d.y)) * 0.5)
 
 		return {
 			"posJittered": posJittered,
@@ -164,27 +170,26 @@ class Chunk extends Node3D:
 		var color = Color(0.5 + shade, 0.4 + shade, 0.3 + shade)
 		# Color from subdivisionLevel, red to green
 		# Give the color horizontal lines from noise to make it look more natural
-		var noiseHeight = data2d.noiseHeight
-		var noiseShade = noiseHeight.get_noise_1d(pos3d.y * 20 + pos3d.x * 0.01 + pos3d.z + 0.01) * 0.2
+		var noiseShade = data2d.worldNoise.get_noise_1d(pos3d.y * 20 + pos3d.x * 0.01 + pos3d.z + 0.01) * 0.2
 		color += Color(noiseShade, noiseShade, noiseShade)
 		# Add brown colors based on 2d noise
-		var noiseColor = abs(noiseHeight.get_noise_2dv(pos2d * 0.1))
+		var noiseColor = abs(data2d.worldNoise.get_noise_2dv(pos2d * 0.1))
 		color += Color(noiseColor, noiseColor * 0.5, 0) * 0.1
 		# Add blue magic lines based on 3d noise
 		if pos3d.y > -2:
-			var noiseMagic = noiseHeight.get_noise_3dv(pos3d * 2)
+			var noiseMagic = data2d.worldNoise.get_noise_3dv(pos3d * 2)
 			color += Color(0, 0, 1 if abs(noiseMagic) < 0.05 else 0)
 
 		# Add mesh to multi mesh
 		if pos3d.y < 8:
 			multiMeshes[size].append([data3d.posJittered, color])
 
-		# Add collision shape
-		# var shape = CollisionShape3D.new()
-		# shape.shape = box
-		# mesh.add_child(shape)
+			# Add collision shape
+			# var shape = CollisionShape3D.new()
+			# shape.shape = box
+			# mesh.add_child(shape)
 
-		nCubes += 1
+			nCubes += 1
 	
 	# Subdivide a voxel into 8 smaller voxels, potentially subdivide those further
 	func subdivideVoxel(pos3d, voxelSize):
@@ -259,7 +264,6 @@ class Chunk extends Node3D:
 
 
 var chunks = {}
-const renderDistance = 3
 func _process(_delta):
 	# Find chunks near the camera that need to be created
 	var camera = get_parent().get_node("Camera3D")
@@ -270,6 +274,7 @@ func _process(_delta):
 		floor(cameraPos.y / chunkSize) * chunkSize,
 		floor(cameraPos.z / chunkSize) * chunkSize
 	)
+	print("FPS ", Engine.get_frames_per_second())
 	for x in range(-renderDistance, renderDistance + 1):
 		for y in range(-renderDistance, renderDistance + 1):
 			for z in range(-renderDistance, renderDistance + 1):
@@ -277,6 +282,10 @@ func _process(_delta):
 				var chunkDistance = Vector3(x, y, z).length()
 
 				var renderChunkPos = cameraChunkPos + Vector3(x, y, z) * chunkSize
+				# Skip vertical chunks
+				if renderChunkPos.y > renderVerticalBounds or renderChunkPos.y < -renderVerticalBounds:
+					continue
+					
 				var chunk = chunks.get(renderChunkPos)
 				if chunk == null:
 					chunk = Chunk.new(renderChunkPos)
@@ -292,7 +301,16 @@ func _process(_delta):
 						chunk.releaseSubdivisions(newVoxelSize)
 	
 	# Remove chunks that are too far away
+	var totalVoxels = 0
+	var totalMeshes = 0
 	for chunkPos in chunks:
 		if chunkPos.distance_to(cameraPos) > chunkSize * renderDistance * 2:
 			chunks[chunkPos].queue_free()
 			chunks.erase(chunkPos)
+		else:
+			totalVoxels += chunks[chunkPos].nCubes
+			totalMeshes += chunks[chunkPos].multiMeshes.size()
+	
+	print("Total voxels: ", totalVoxels)
+	print("Total meshes: ", totalMeshes)
+	print("Total chunks: ", chunks.size())
