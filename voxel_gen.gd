@@ -9,7 +9,7 @@ const roomSpacing = 70
 const renderDistance = 7
 const renderVerticalBounds = 20
 
-const maxReleasePerFrame = 20 # Max number of subdivisions to release each update frame
+const maxReleasePerFrame = 400 # Max number of subdivisions to release each update frame
 
 # Get number of quality levels, based on the largest and smallest voxel size
 const nQualityLevels = log(largestVoxelSize / smallestVoxelSize) / log(2)
@@ -118,12 +118,11 @@ class Chunk extends Node3D:
 	var meshes = []
 	var multiMeshes = {}
 	# Chunks current subdivision level
-	var subdivisionLevel = 0
 	var chunksVoxelSize = largestVoxelSize
 
-	# Hold back subdivisions until you get closer
+	# Hold back subdivisions until you get closer, or to prevent lag
+	var progressSubdivisions = []
 	var heldSubdivisons = []
-	var isHoldingSubdivisions = false
 
 	# Create a chunk at a position
 	func _init(initPos):
@@ -164,14 +163,12 @@ class Chunk extends Node3D:
 				for i in range(len(multiMeshes[size])):
 					if i > 0:
 						multiMeshes[size][0].set_instance_transform(i, Transform3D(Basis(), multiMeshes[size][i][0]))
-						# var color = Color(1 - subdivisionLevel / nQualityLevels, subdivisionLevel / nQualityLevels, 0)
 						multiMeshes[size][0].set_instance_color(i, multiMeshes[size][i][1])
 
 	func renderVoxel(pos2d, pos3d, data2d, data3d, size):
 		# Color from dark to light gray as height increases
 		var shade = pos3d.y / 30
 		var color = Color(0.5 + shade, 0.4 + shade, 0.3 + shade)
-		# Color from subdivisionLevel, red to green
 		# Give the color horizontal lines from noise to make it look more natural
 		var noiseShade = data2d.worldNoise.get_noise_1d(pos3d.y * 20 + pos3d.x * 0.01 + pos3d.z + 0.01) * 0.2
 		color += Color(noiseShade, noiseShade, noiseShade)
@@ -246,27 +243,26 @@ class Chunk extends Node3D:
 					if nVoxelSize < chunksVoxelSize:
 						heldSubdivisons.append([pos2, nVoxelSize])
 					else:
-						subdivideVoxel(pos2, nVoxelSize)
+						progressSubdivisions.append([pos2, nVoxelSize])
 
-	# Release subdivisions, if any
-	func releaseSubdivisionsRun():
-		var newHelds = []
+	# Progress on subdivisions
+	func progress():
+		var newProgress = []
 		var nSubdivisions = 0
-		isHoldingSubdivisions = false
-		for subdivision in heldSubdivisons:
-			if nSubdivisions > maxReleasePerFrame or subdivision[1] < chunksVoxelSize:
-				newHelds.append(subdivision)
+		for subdivision in progressSubdivisions:
+			if nSubdivisions > maxReleasePerFrame:
+				newProgress.append(subdivision)
 			else:
 				subdivideVoxel(subdivision[0], subdivision[1])
 				nSubdivisions += 1
-		if nSubdivisions >= maxReleasePerFrame:
-			isHoldingSubdivisions = true
-		heldSubdivisons = newHelds
-
+		progressSubdivisions = newProgress
+		rerenderMultiMeshes()
+	
+	# Release subdivisions
 	func releaseSubdivisions(newVoxelSize):
 		chunksVoxelSize = newVoxelSize
-		releaseSubdivisionsRun()
-		rerenderMultiMeshes()
+		progressSubdivisions += heldSubdivisons
+		heldSubdivisons = []
 
 
 var chunks = {}
@@ -284,8 +280,8 @@ func _process(_delta):
 
 	# Only update one chunk per frame max
 	var updatedChunk = false
+	var chunkToProgress = []
 	var chunkToRelease = null
-	var chunkToReleaseSize = 0
 	var renderDists = [0]
 	for dist in range(1, renderDistance):
 		renderDists.append(dist)
@@ -295,6 +291,9 @@ func _process(_delta):
 			for y in renderDists:
 				# Get chunks distance for quality level
 				var chunkDistance = Vector3(x, y, z).length()
+				# Get the chunks minimum voxel size, based on how close it is to the camera, halved from max each time
+				var subdivisionLevel = clamp(round(nQualityLevels - chunkDistance + 1), 0, nQualityLevels)
+				var newVoxelSize = largestVoxelSize / pow(2, subdivisionLevel)
 
 				var renderChunkPos = cameraChunkPos + Vector3(x, y, z) * chunkSize
 				# Skip vertical chunks
@@ -309,23 +308,24 @@ func _process(_delta):
 					updatedChunk = true
 					break
 				else:
-					# Update the chunks subdivisionLevel up to max nQualityLevel, based on how close it is to the camera
-					var tarSubdivisionLevel = min(nQualityLevels, round(nQualityLevels - chunkDistance + 1))
-					if chunk.subdivisionLevel < tarSubdivisionLevel and not chunk.isHoldingSubdivisions:
-						chunk.subdivisionLevel += 1
-					# Update the chunksVoxelSize, starts at largestVoxelSize then halved each subdivision
-					var newVoxelSize = largestVoxelSize / pow(2, chunk.subdivisionLevel)
-					if not chunkToRelease or chunkToRelease.nCubes > chunk.nCubes:
-						if (chunk.chunksVoxelSize != newVoxelSize or chunk.isHoldingSubdivisions) and chunk.heldSubdivisons.size() != 0:
-							chunkToReleaseSize = newVoxelSize
+					if chunk.progressSubdivisions.size() != 0:
+						chunkToProgress.append(chunk)
+					# Find the chunk with the largest voxels to release
+					if not chunkToRelease or chunk.chunksVoxelSize > chunkToRelease.chunksVoxelSize:
+						if chunk.chunksVoxelSize != newVoxelSize and chunk.heldSubdivisons.size() != 0 and chunk.progressSubdivisions.size() == 0:
 							chunkToRelease = chunk
 			if updatedChunk:
 				break
 		if updatedChunk:
 			break
-	if chunkToRelease != null:
-		# Release held subdivisions
-		chunkToRelease.releaseSubdivisions(chunkToReleaseSize)
+			
+	# Progress on random chunk
+	if chunkToProgress.size() != 0:
+		var chunk = chunkToProgress[randi() % chunkToProgress.size()]
+		chunk.progress()
+	# Release held subdivisions
+	elif chunkToRelease != null:
+		chunkToRelease.releaseSubdivisions(chunkToRelease.chunksVoxelSize / 2)
 
 	# Remove chunks that are too far away
 	var totalVoxels = 0
