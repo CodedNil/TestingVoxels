@@ -1,18 +1,18 @@
 extends Node3D
 
-const chunkSize = 16.0
-const largestVoxelSize = 4.0
-const smallestVoxelSize = 0.25
+const chunkSize: int = 16
+const largestVoxelSize: float = 4.0
+const smallestVoxelSize: float = 0.25
 
-const roomSpacing = 70
+const roomSpacing: float = 70
 
-const renderDistance = 7
-const renderVerticalBounds = 20
+const renderDistance: int = 7
+const renderVerticalBounds: float = 10
 
-const maxReleasePerFrame = 400 # Max number of subdivisions to release each update frame
+const maxReleasePerFrame: int = 400  # Max number of subdivisions to release each update frame
 
 # Get number of quality levels, based on the largest and smallest voxel size
-const nQualityLevels = log(largestVoxelSize / smallestVoxelSize) / log(2)
+const nQualityLevels: int = int(log(largestVoxelSize / smallestVoxelSize) / log(2))
 
 
 # Create noise generator class that can be initialised then have functions within
@@ -39,14 +39,15 @@ class DataGenerator:
 		var height = worldNoise.get_noise_2dv(pos2d) * 2
 		# Temperature scale, between 0 cold and 1 hot
 		var temperature = 0.5 + worldNoise.get_noise_2dv(pos2d) * 0.5
-		# Lushness scale, between 0 dry and 1 lush
+		# Humidity scale, between 0 dry and 1 wet
+		var humidity = 0.5 + worldNoise.get_noise_2dv(pos2d) * 0.5
+		# Lushness scale, between 0 barren and 1 lush
 		var lushness = 0.5 + worldNoise.get_noise_2dv(pos2d) * 0.5
 
 		# Get data for the room
 		# Get 2d room center position, pos2d snapped to nearest room spacing point
 		var roomPosition = Vector2(
-			round(pos2d.x / roomSpacing) * roomSpacing,
-			round(pos2d.y / roomSpacing) * roomSpacing
+			round(pos2d.x / roomSpacing) * roomSpacing, round(pos2d.y / roomSpacing) * roomSpacing
 		)
 		# Get room noise seed, based on room position
 		var roomSeed = roomPosition.x + roomPosition.y * 123
@@ -65,19 +66,24 @@ class DataGenerator:
 			else roomSize
 		)
 
-		# Calculate if we are inside the room
-		var roomAdjacence2d = roomDist < roomSizeLerp + 2
+		# Get data for the corridors
+		var corridorWidth = 6 + getNoise(0.3, roomSeed).get_noise_2dv(pos2d) * 8
+		var corridorDist = min(
+			abs(pos2d.x + getNoise(0.3, roomSeed).get_noise_1d(pos2d.y) * 8 - roomPosition.x),
+			abs(pos2d.y + getNoise(0.3, roomSeed).get_noise_1d(pos2d.x) * 8 - roomPosition.y),
+		)
 
 		return {
 			"worldNoise": worldNoise,
 			"height": height,
 			"temperature": temperature,
+			"humidity": humidity,
 			"lushness": lushness,
 			"roomPosition": roomPosition,
-			"roomSeed": roomSeed,
-			"roomAdjacence2d": roomAdjacence2d,
 			"roomDist": roomDist,
 			"roomSize": roomSizeLerp,
+			"corridorWidth": corridorWidth,
+			"corridorDist": corridorDist,
 		}
 
 	func get_data_3d(data2d, pos2d, pos3d):
@@ -94,31 +100,34 @@ class DataGenerator:
 		return {
 			"posJittered": posJittered,
 			"roomDist3d": data3d_roomInside.roomDist3d,
-			"roomInside3d": data3d_roomInside.roomInside3d,
+			"inside3d": data3d_roomInside.inside3d,
 		}
 
 	func get_data_3d_roomInside(data2d, pos2d, pos3d):
 		var roomHeight = 4 if pos3d.y < 0 else 2 + getNoise(0.1, 12345).get_noise_2dv(pos2d) * 0.5
 		var roomDist3d = Vector3(pos3d.x - data2d.roomPosition.x, pos3d.y * roomHeight, pos3d.z - data2d.roomPosition.y).length()
 		var roomInside3d = roomDist3d < data2d.roomSize
+
+		var corridorHeight = 4 if pos3d.y < 0 else 2 + getNoise(0.1, 12345).get_noise_2dv(pos2d) * 0.5
+		var corridorDist3d = Vector2(data2d.corridorDist, pos3d.y * corridorHeight / 2).length()
+		var corridorInside3d = corridorDist3d < data2d.corridorWidth
+
+		var inside3d = roomInside3d or corridorInside3d
 		return {
 			"roomDist3d": roomDist3d,
-			"roomInside3d": roomInside3d,
+			"inside3d": inside3d,
 		}
 
 
 # Chunk class
-class Chunk extends Node3D:
+class Chunk:
+	extends Node3D
 	var dataGen = DataGenerator.new()
-	
-	var pos = Vector3(0, 0, 0)
+
+	var pos = Vector3(0, 0, 0)  # Chunks position
 	var nCubes = 0
-	# Store the cubes at each division level
-	var cubes = {}
-	var meshes = []
-	var multiMeshes = {}
-	# Chunks current subdivision level
-	var chunksVoxelSize = largestVoxelSize
+	var multiMeshes = {}  # Store the cubes at each division level
+	var chunksVoxelSize = largestVoxelSize  # Chunks current subdivision level
 
 	# Hold back subdivisions until you get closer, or to prevent lag
 	var progressSubdivisions = []
@@ -131,14 +140,14 @@ class Chunk extends Node3D:
 		var cVoxelSize = chunkSize
 		while cVoxelSize > smallestVoxelSize:
 			cVoxelSize /= 2
-	
+
 			if cVoxelSize <= largestVoxelSize:
 				# Create the multi mesh instance
 				var multiMesh = MultiMesh.new()
 				multiMesh.transform_format = MultiMesh.TRANSFORM_3D
 				multiMesh.use_colors = true
-				multiMesh.use_custom_data  = false
-				multiMesh.instance_count = 100000
+				multiMesh.use_custom_data = false
+				multiMesh.instance_count = 0
 				multiMesh.mesh = BoxMesh.new()
 				multiMesh.mesh.size = Vector3(cVoxelSize, cVoxelSize, cVoxelSize)
 				var meshInstance = MultiMeshInstance3D.new()
@@ -150,7 +159,7 @@ class Chunk extends Node3D:
 				# Add to scene
 				add_child(meshInstance)
 				multiMeshes[cVoxelSize] = [multiMesh]
-		
+
 		# Create the first subdivision
 		subdivideVoxel(pos, chunkSize)
 		rerenderMultiMeshes()
@@ -162,7 +171,9 @@ class Chunk extends Node3D:
 				multiMeshes[size][0].instance_count = len(multiMeshes[size]) - 1
 				for i in range(len(multiMeshes[size])):
 					if i > 0:
-						multiMeshes[size][0].set_instance_transform(i - 1, Transform3D(Basis(), multiMeshes[size][i][0]))
+						multiMeshes[size][0].set_instance_transform(
+							i - 1, Transform3D(Basis(), multiMeshes[size][i][0])
+						)
 						multiMeshes[size][0].set_instance_color(i - 1, multiMeshes[size][i][1])
 
 	func renderVoxel(pos2d, pos3d, data2d, data3d, size):
@@ -170,7 +181,10 @@ class Chunk extends Node3D:
 		var shade = pos3d.y / 30
 		var color = Color(0.5 + shade, 0.4 + shade, 0.3 + shade)
 		# Give the color horizontal lines from noise to make it look more natural
-		var noiseShade = data2d.worldNoise.get_noise_1d(pos3d.y * 20 + pos3d.x * 0.01 + pos3d.z + 0.01) * 0.2
+		var noiseShade = (
+			data2d.worldNoise.get_noise_1d(pos3d.y * 20 + pos3d.x * 0.01 + pos3d.z + 0.01)
+			* 0.2
+		)
 		color += Color(noiseShade, noiseShade, noiseShade)
 		# Add brown colors based on 2d noise
 		var noiseColor = abs(data2d.worldNoise.get_noise_2dv(pos2d * 0.1))
@@ -181,36 +195,32 @@ class Chunk extends Node3D:
 			color += Color(0, 0, 1 if abs(noiseMagic) < 0.05 else 0)
 
 		# Add mesh to multi mesh
-		if pos3d.y < 8:
-			multiMeshes[size].append([data3d.posJittered, color])
+		multiMeshes[size].append([data3d.posJittered, color])
 
-			# Add collision shape
-			# var shape = CollisionShape3D.new()
-			# shape.shape = box
-			# mesh.add_child(shape)
+		# Add collision shape
+		# if size >= 0.5:
+		# var shape = CollisionShape3D.new()
+		# shape.shape = box
+		# mesh.add_child(shape)
 
-			nCubes += 1
-	
+		nCubes += 1
+
 	# Subdivide a voxel into 8 smaller voxels, potentially subdivide those further
 	func subdivideVoxel(pos3d, voxelSize):
-		# Add count
-		if voxelSize not in cubes:
-			cubes[voxelSize] = 0
-		cubes[voxelSize] += 1
-
 		# If voxel is too small, render it
 		if voxelSize <= smallestVoxelSize:
 			var pos2d = Vector2(pos3d.x, pos3d.z)
 			var data2d = dataGen.get_data_2d(pos2d)
 			var data3d = dataGen.get_data_3d(data2d, pos2d, pos3d)
 			# If outside the room, render
-			if not data3d.roomInside3d:
+			if not data3d.inside3d:
 				renderVoxel(pos2d, pos3d, data2d, data3d, voxelSize)
 			return
 
 		if voxelSize <= largestVoxelSize:
 			# Calculate how much of the voxel is air
 			var nAirVoxels = 0
+			# Smaller voxels have higher threshold for air, so less small voxels made
 			var maxAirVoxels = 4 if voxelSize == 0.5 else 2 if voxelSize == 1 else 0
 			for x in [-0.5, 0.5]:
 				for z in [-0.5, 0.5]:
@@ -220,7 +230,7 @@ class Chunk extends Node3D:
 						var data3d = dataGen.get_data_3d_roomInside(
 							data2d, pos2d, pos3d + Vector3(x, y, z) * voxelSize
 						)
-						if data3d.roomInside3d:
+						if data3d.inside3d:
 							nAirVoxels += 1
 			# If air voxels in threshold range, render it
 			if nAirVoxels <= maxAirVoxels:
@@ -257,7 +267,7 @@ class Chunk extends Node3D:
 				nSubdivisions += 1
 		progressSubdivisions = newProgress
 		rerenderMultiMeshes()
-	
+
 	# Release subdivisions
 	func releaseSubdivisions(newVoxelSize):
 		chunksVoxelSize = newVoxelSize
@@ -266,11 +276,13 @@ class Chunk extends Node3D:
 
 
 var chunks = {}
+
+
 func _process(_delta):
 	# Find chunks near the camera that need to be created
 	var camera = get_parent().get_node("Camera3D")
 	var cameraPos = camera.global_transform.origin
-	
+
 	var cameraChunkPos = Vector3(
 		floor(cameraPos.x / chunkSize) * chunkSize,
 		floor(cameraPos.y / chunkSize) * chunkSize,
@@ -292,14 +304,19 @@ func _process(_delta):
 				# Get chunks distance for quality level
 				var chunkDistance = Vector3(x, y, z).length()
 				# Get the chunks minimum voxel size, based on how close it is to the camera, halved from max each time
-				var subdivisionLevel = clamp(round(nQualityLevels - chunkDistance + 1), 0, nQualityLevels)
+				var subdivisionLevel = clamp(
+					round(nQualityLevels - chunkDistance + 1), 0, nQualityLevels
+				)
 				var newVoxelSize = largestVoxelSize / pow(2, subdivisionLevel)
 
 				var renderChunkPos = cameraChunkPos + Vector3(x, y, z) * chunkSize
 				# Skip vertical chunks
-				if renderChunkPos.y > renderVerticalBounds or renderChunkPos.y < -renderVerticalBounds:
+				if (
+					renderChunkPos.y > renderVerticalBounds
+					or renderChunkPos.y < -renderVerticalBounds
+				):
 					continue
-					
+
 				var chunk = chunks.get(renderChunkPos)
 				if chunk == null:
 					chunk = Chunk.new(renderChunkPos)
@@ -312,13 +329,17 @@ func _process(_delta):
 						chunkToProgress.append(chunk)
 					# Find the chunk with the largest voxels to release
 					if not chunkToRelease or chunk.chunksVoxelSize > chunkToRelease.chunksVoxelSize:
-						if chunk.chunksVoxelSize != newVoxelSize and chunk.heldSubdivisons.size() != 0 and chunk.progressSubdivisions.size() == 0:
+						if (
+							chunk.chunksVoxelSize != newVoxelSize
+							and chunk.heldSubdivisons.size() != 0
+							and chunk.progressSubdivisions.size() == 0
+						):
 							chunkToRelease = chunk
 			if updatedChunk:
 				break
 		if updatedChunk:
 			break
-			
+
 	# Progress on random chunk
 	if chunkToProgress.size() != 0:
 		var chunk = chunkToProgress[randi() % chunkToProgress.size()]
@@ -337,7 +358,7 @@ func _process(_delta):
 		else:
 			totalVoxels += chunks[chunkPos].nCubes
 			totalMeshes += chunks[chunkPos].multiMeshes.size()
-	
+
 	print("Total voxels: ", totalVoxels)
 	print("Total meshes: ", totalMeshes)
 	print("Total chunks: ", chunks.size())
