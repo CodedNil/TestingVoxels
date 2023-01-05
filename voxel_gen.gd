@@ -52,14 +52,20 @@ class DataGenerator:
 		)
 		# Get room noise seed, based on room position
 		var roomSeed = roomPosition.x + roomPosition.y * 123
+		# Get room position offset by noise, so rooms are not perfectly aligned
+		roomPosition += Vector2(
+			worldNoise.get_noise_1d(roomPosition.y) * 30,
+			worldNoise.get_noise_1d(roomPosition.x) * 30,
+		)
 		# Get angle from center with x and z, from -pi to pi
 		var roomAngle = pos2d.angle_to_point(roomPosition)
 		# Get 2d distance from center with x and z
 		var roomDist = pos2d.distance_to(roomPosition)
 
 		# Calculate room size, based on noise from the angle
-		var roomSize0 = 20 + getNoise(0.3, roomSeed).get_noise_1d(-PI) * 20
-		var roomSize = 20 + getNoise(0.3, roomSeed).get_noise_1d(roomAngle) * 20
+		var roomBaseSize = 15 + worldNoise.get_noise_1d(roomSeed) * 15
+		var roomSize0 = roomBaseSize + getNoise(0.3, roomSeed).get_noise_1d(-PI) * roomBaseSize
+		var roomSize = roomBaseSize + getNoise(0.3, roomSeed).get_noise_1d(roomAngle) * roomBaseSize
 		# For the last 25% of the angle, so from half pi to pi, lerp towards roomSize0
 		var roomSizeLerp = (
 			lerp(roomSize, roomSize0, (roomAngle - PI / 2) / (PI / 2))

@@ -15,6 +15,10 @@ transform = Transform3D(0.974761, 0.0943496, -0.202333, 6.09165e-10, 0.906308, 0
 current = true
 script = ExtResource("2_3e13j")
 
+[node name="SpotLight3D" type="SpotLight3D" parent="Camera3D"]
+shadow_enabled = true
+spot_range = 20.0
+
 [node name="OmniLight3D" type="OmniLight3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -2.4482, -1)
 shadow_enabled = true
