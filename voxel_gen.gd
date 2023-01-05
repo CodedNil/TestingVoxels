@@ -8,8 +8,8 @@ const roomSpacing: float = 70
 
 const renderDistance: int = 24
 
-const maxChunksPerFrame: int = 3 # Max number of chunks to generate each update frame
-const maxReleasePerFrame: int = 400  # Max number of subdivisions to release each update frame
+const maxReleasePerFrame: int = 500  # Max number of subdivisions to release each update frame
+const msBudget: float = 6  # Max time to spend on subdivision per update frame
 
 # Get number of quality levels, based on the largest and smallest voxel size
 const nQualityLevels: int = int(log(largestVoxelSize / smallestVoxelSize) / log(2))
@@ -262,17 +262,18 @@ class Chunk:
 						progressSubdivisions.append([pos2, nVoxelSize])
 
 	# Progress on subdivisions
-	func progress():
+	func progress(nSubdivisions, startTime):
 		var newProgress = []
-		var nSubdivisions = 0
 		for subdivision in progressSubdivisions:
-			if nSubdivisions > maxReleasePerFrame:
+			# Try to maintain a good framerate
+			if Time.get_ticks_msec() - startTime > msBudget or nSubdivisions > maxReleasePerFrame:
 				newProgress.append(subdivision)
 			else:
 				subdivideVoxel(subdivision[0], subdivision[1])
 				nSubdivisions += 1
 		progressSubdivisions = newProgress
 		rerenderMultiMeshes()
+		return nSubdivisions
 
 	# Release subdivisions
 	func releaseSubdivisions(newVoxelSize):
@@ -283,8 +284,15 @@ class Chunk:
 
 var chunks = {}
 
+func sortDescending(a, b):
+	if a[0] > b[0]:
+		return true
+	return false
 
 func _process(_delta):
+	# Get time to calculate ms budget
+	var startTime = Time.get_ticks_msec()
+
 	# Find chunks near the camera that need to be created
 	var camera = get_parent().get_node("Camera3D")
 	var cameraPos = camera.global_transform.origin
@@ -297,9 +305,7 @@ func _process(_delta):
 	print("FPS ", Engine.get_frames_per_second())
 
 	# Only update one chunk per frame max
-	var newChunks: int = 0
 	var chunkToProgress = []
-	var chunkToRelease = null
 	var renderDists = [0]
 	for dist in range(1, renderDistance):
 		renderDists.append(dist)
@@ -317,11 +323,9 @@ func _process(_delta):
 			for y in [0, -1]:
 				# Get chunks distance for quality level
 				var chunkDistance = Vector3(x, y, z).length()
-				# Get the chunks minimum voxel size, based on how close it is to the camera, halved from max each time
-				var subdivisionLevel = clamp(
-					round(nQualityLevels - chunkDistance + 1), 0, nQualityLevels
-				)
-				var newVoxelSize = largestVoxelSize / pow(2, subdivisionLevel)
+				# Ignore chunks in a radius outside the render distance
+				if chunkDistance > float(renderDistance) / 2:
+					continue
 
 				var renderChunkPos = Vector3(cameraChunkPos.x + x * chunkSize, y * chunkSize, cameraChunkPos.z + z * chunkSize)
 
@@ -330,20 +334,23 @@ func _process(_delta):
 					chunk = Chunk.new(renderChunkPos)
 					add_child(chunk)
 					chunks[renderChunkPos] = chunk
-					newChunks += 1
-					if newChunks > maxChunksPerFrame:
-						break
 				else:
+					# Get the chunks minimum voxel size, based on how close it is to the camera, halved from max each time
+					var subdivisionLevel = clamp(
+						round(nQualityLevels - chunkDistance + 1), 0, nQualityLevels
+					)
+					var newVoxelSize = largestVoxelSize / pow(2, subdivisionLevel)
+
 					if chunk.progressSubdivisions.size() != 0:
-						chunkToProgress.append(chunk)
-					# Find the chunk with the largest voxels to release
-					if not chunkToRelease or chunk.chunksVoxelSize > chunkToRelease.chunksVoxelSize:
-						if (
-							chunk.chunksVoxelSize != newVoxelSize
-							and chunk.heldSubdivisons.size() != 0
-							and chunk.progressSubdivisions.size() == 0
-						):
-							chunkToRelease = chunk
+						# Calculate progress priority, based on distance from camera and if it is in front of the camera
+						var cameraDir = camera.global_transform.basis.z
+						var chunkDir = (renderChunkPos - cameraPos).normalized()
+						var dot = cameraDir.dot(chunkDir)
+						var priority = chunkDistance + dot * 2 - chunk.chunksVoxelSize
+						chunkToProgress.append([priority, chunk])
+					# Release subdivisions if the voxel size is too big
+					if (chunk.chunksVoxelSize != newVoxelSize and chunk.heldSubdivisons.size() != 0 and chunk.progressSubdivisions.size() == 0):
+						chunk.releaseSubdivisions(chunk.chunksVoxelSize / 2)
 		# Rotate the spiral
 		if (x == z) or (x < 0 and x == -z) or (x > 0 and x == 1 - z):
 			var t = dx
@@ -352,16 +359,23 @@ func _process(_delta):
 		x += dx
 		z += dz
 
-		if newChunks > maxChunksPerFrame:
-			break
+	# Sort chunks by priority
+	chunkToProgress.sort_custom(sortDescending)
+	# Perhaps do the entire above only once every x seconds (or if chunkToProgress is empty)
 
-	# Progress on random chunk
+	# Progress on priority chunk
 	if chunkToProgress.size() != 0:
-		var chunk = chunkToProgress[randi() % chunkToProgress.size()]
-		chunk.progress()
-	# Release held subdivisions
-	elif chunkToRelease != null:
-		chunkToRelease.releaseSubdivisions(chunkToRelease.chunksVoxelSize / 2)
+		var nSubdivisions = 0
+		for i in range(20):
+			var chunk = chunkToProgress.pop_back()
+			nSubdivisions += chunk[1].progress(nSubdivisions, startTime)
+			if nSubdivisions > maxReleasePerFrame:
+				break
+			# Try to maintain a good framerate
+			if Time.get_ticks_msec() - startTime > msBudget:
+				break
+			if chunkToProgress.size() == 0:
+				break
 
 	# Remove chunks that are too far away
 	var totalVoxels = 0
