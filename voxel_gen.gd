@@ -158,12 +158,12 @@ class Chunk extends Node3D:
 	func rerenderMultiMeshes():
 		# Count number of voxels at each size, and set instance count, and create the meshes
 		for size in multiMeshes:
-			if multiMeshes[size][0].instance_count != len(multiMeshes[size]):
-				multiMeshes[size][0].instance_count = len(multiMeshes[size])
+			if multiMeshes[size][0].instance_count != len(multiMeshes[size]) - 1:
+				multiMeshes[size][0].instance_count = len(multiMeshes[size]) - 1
 				for i in range(len(multiMeshes[size])):
 					if i > 0:
-						multiMeshes[size][0].set_instance_transform(i, Transform3D(Basis(), multiMeshes[size][i][0]))
-						multiMeshes[size][0].set_instance_color(i, multiMeshes[size][i][1])
+						multiMeshes[size][0].set_instance_transform(i - 1, Transform3D(Basis(), multiMeshes[size][i][0]))
+						multiMeshes[size][0].set_instance_color(i - 1, multiMeshes[size][i][1])
 
 	func renderVoxel(pos2d, pos3d, data2d, data3d, size):
 		# Color from dark to light gray as height increases
