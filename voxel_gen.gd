@@ -1,6 +1,6 @@
 extends Node3D
 
-const chunkSize: int = 16
+const chunkSize: float = 16.0
 const largestVoxelSize: float = 4.0
 const smallestVoxelSize: float = 0.25
 
@@ -47,7 +47,8 @@ class DataGenerator:
 		# Get data for the room
 		# Get 2d room center position, pos2d snapped to nearest room spacing point
 		var roomPosition = Vector2(
-			round(pos2d.x / roomSpacing) * roomSpacing, round(pos2d.y / roomSpacing) * roomSpacing
+			round(pos2d.x / roomSpacing) * roomSpacing,
+			round(pos2d.y / roomSpacing) * roomSpacing
 		)
 		# Get room noise seed, based on room position
 		var roomSeed = roomPosition.x + roomPosition.y * 123
@@ -87,23 +88,6 @@ class DataGenerator:
 		}
 
 	func get_data_3d(data2d, pos2d, pos3d):
-		var data3d_roomInside = get_data_3d_roomInside(data2d, pos2d, pos3d)
-
-		# Jitter the pos3d
-		var posJittered = Vector3(pos3d.x, pos3d.y, pos3d.z)
-		# Add height to y based on noise
-		posJittered.y += data2d.height
-		# Add jiggle to x and z based on noise
-		posJittered.x += (data2d.worldNoise.get_noise_2dv(Vector2(pos3d.z, pos3d.y)) * 0.5)
-		posJittered.z += (data2d.worldNoise.get_noise_2dv(Vector2(pos3d.x, pos3d.y)) * 0.5)
-
-		return {
-			"posJittered": posJittered,
-			"roomDist3d": data3d_roomInside.roomDist3d,
-			"inside3d": data3d_roomInside.inside3d,
-		}
-
-	func get_data_3d_roomInside(data2d, pos2d, pos3d):
 		var roomHeight = 4 if pos3d.y < 0 else 2 + getNoise(0.1, 12345).get_noise_2dv(pos2d) * 0.5
 		var roomDist3d = Vector3(pos3d.x - data2d.roomPosition.x, pos3d.y * roomHeight, pos3d.z - data2d.roomPosition.y).length()
 		var roomInside3d = roomDist3d < data2d.roomSize
@@ -118,6 +102,22 @@ class DataGenerator:
 			"inside3d": inside3d,
 		}
 
+	func get_data_3d_advanced(data2d, pos2d, pos3d):
+		var data3d = get_data_3d(data2d, pos2d, pos3d)
+
+		# Jitter the pos3d
+		var posJittered = Vector3(pos3d.x, pos3d.y, pos3d.z)
+		# Add height to y based on noise
+		posJittered.y += data2d.height
+		# Add jiggle to x and z based on noise
+		posJittered.x += (data2d.worldNoise.get_noise_2dv(Vector2(pos3d.z, pos3d.y)) * 0.5)
+		posJittered.z += (data2d.worldNoise.get_noise_2dv(Vector2(pos3d.x, pos3d.y)) * 0.5)
+
+		return {
+			"posJittered": posJittered,
+			"roomDist3d": data3d.roomDist3d,
+			"inside3d": data3d.inside3d,
+		}
 
 # Chunk class
 class Chunk:
@@ -199,9 +199,9 @@ class Chunk:
 
 		# Add collision shape
 		# if size >= 0.5:
-		# var shape = CollisionShape3D.new()
-		# shape.shape = box
-		# mesh.add_child(shape)
+		# 	var shape = CollisionShape3D.new()
+		# 	shape.shape = box
+		# 	mesh.add_child(shape)
 
 		nCubes += 1
 
@@ -211,7 +211,7 @@ class Chunk:
 		if voxelSize <= smallestVoxelSize:
 			var pos2d = Vector2(pos3d.x, pos3d.z)
 			var data2d = dataGen.get_data_2d(pos2d)
-			var data3d = dataGen.get_data_3d(data2d, pos2d, pos3d)
+			var data3d = dataGen.get_data_3d_advanced(data2d, pos2d, pos3d)
 			# If outside the room, render
 			if not data3d.inside3d:
 				renderVoxel(pos2d, pos3d, data2d, data3d, voxelSize)
@@ -227,7 +227,7 @@ class Chunk:
 					var pos2d = Vector2(pos3d.x + x * voxelSize, pos3d.z + z * voxelSize)
 					var data2d = dataGen.get_data_2d(pos2d)
 					for y in [-0.5, 0.5]:
-						var data3d = dataGen.get_data_3d_roomInside(
+						var data3d = dataGen.get_data_3d(
 							data2d, pos2d, pos3d + Vector3(x, y, z) * voxelSize
 						)
 						if data3d.inside3d:
@@ -236,7 +236,7 @@ class Chunk:
 			if nAirVoxels <= maxAirVoxels:
 				var pos2d = Vector2(pos3d.x, pos3d.z)
 				var data2d = dataGen.get_data_2d(pos2d)
-				var data3d = dataGen.get_data_3d(data2d, pos2d, pos3d)
+				var data3d = dataGen.get_data_3d_advanced(data2d, pos2d, pos3d)
 				renderVoxel(pos2d, pos3d, data2d, data3d, voxelSize)
 				return
 			# If fully air, skip
