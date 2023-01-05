@@ -35,7 +35,7 @@ class DataGenerator:
 		# Base world variables
 		# World height offset for nice gradient slopes, -2 to 2, could have caves going uphill or downhill
 		var worldNoise: FastNoiseLite = getNoise(0.03, 1234)
-		var height: float = worldNoise.get_noise_2dv(pos2d) * 2
+		var height: float = worldNoise.get_noise_2dv(pos2d / 10) * 10
 		# Temperature scale, between 0 cold and 1 hot
 		var temperature: float = 0.5 + worldNoise.get_noise_2dv(pos2d) * 0.5
 		# Humidity scale, between 0 dry and 1 wet
@@ -43,19 +43,20 @@ class DataGenerator:
 		# Lushness scale, between 0 barren and 1 lush
 		var lushness: float = 0.5 + worldNoise.get_noise_2dv(pos2d) * 0.5
 
+		# Get position offset by noise, so it is not on a perfect grid
+		var horizontalOffset = Vector2(
+			worldNoise.get_noise_1d(pos2d.y / 4) * 60,
+			worldNoise.get_noise_1d(pos2d.x / 4) * 60,
+		)
+
 		# Get data for the room
 		# Get 2d room center position, pos2d snapped to nearest room spacing point
 		var roomPosition: Vector2 = Vector2(
 			round(pos2d.x / roomSpacing) * roomSpacing,
 			round(pos2d.y / roomSpacing) * roomSpacing
-		)
+		) + horizontalOffset
 		# Get room noise seed, based on room position
 		var roomSeed: float = roomPosition.x + roomPosition.y * 123
-		# Get room position offset by noise, so rooms are not perfectly aligned
-		roomPosition += Vector2(
-			worldNoise.get_noise_1d(roomPosition.y) * 30,
-			worldNoise.get_noise_1d(roomPosition.x) * 30,
-		)
 		# Get angle from center with x and z, from -pi to pi
 		var roomAngle: float = pos2d.angle_to_point(roomPosition)
 		# Get 2d distance from center with x and z
@@ -73,10 +74,10 @@ class DataGenerator:
 		)
 
 		# Get data for the corridors
-		var corridorWidth: float = 6 + getNoise(0.3, roomSeed).get_noise_2dv(pos2d) * 8
+		var corridorWidth: float = 6 + worldNoise.get_noise_2dv(pos2d) * 8
 		var corridorDist: float = min(
-			abs(pos2d.x + getNoise(0.3, roomSeed).get_noise_1d(pos2d.y) * 8 - roomPosition.x),
-			abs(pos2d.y + getNoise(0.3, roomSeed).get_noise_1d(pos2d.x) * 8 - roomPosition.y),
+			abs(pos2d.x + worldNoise.get_noise_1d(pos2d.y) * 8 - roomPosition.x),
+			abs(pos2d.y + worldNoise.get_noise_1d(pos2d.x) * 8 - roomPosition.y),
 		)
 
 		return {
@@ -124,6 +125,28 @@ class DataGenerator:
 			"inside3d": data3d.inside3d,
 		}
 
+# Define the materials
+var voxelMaterials: Dictionary = {}
+func _ready():
+	# Standard
+	voxelMaterials['standard'] = StandardMaterial3D.new()
+	voxelMaterials['standard'].albedo_color = Color(1, 1, 1)
+	voxelMaterials['standard'].vertex_color_use_as_albedo = true
+	voxelMaterials['standard'].shading_mode = StandardMaterial3D.SHADING_MODE_PER_VERTEX
+	voxelMaterials['standard'].roughness = 1
+	# Blue magic
+	voxelMaterials['bluemagic'] = StandardMaterial3D.new()
+	voxelMaterials['bluemagic'].albedo_color = Color(1, 1, 1)
+	voxelMaterials['bluemagic'].vertex_color_use_as_albedo = true
+	voxelMaterials['bluemagic'].shading_mode = StandardMaterial3D.SHADING_MODE_PER_VERTEX
+	voxelMaterials['bluemagic'].emission_enabled = true
+	voxelMaterials['bluemagic'].emission_energy = 1
+	voxelMaterials['bluemagic'].emission = Color(0, 0, 0.5)
+	voxelMaterials['bluemagic'].rim_enabled = true
+	voxelMaterials['bluemagic'].rim = 1
+	voxelMaterials['bluemagic'].rim_tint = 0.5
+
+
 # Chunk class
 class Chunk:
 	extends Node3D
@@ -140,29 +163,36 @@ class Chunk:
 	# Create a chunk at a position
 	func _init(initPos):
 		pos = initPos
+	
+	# Create the meshes for the chunk
+	func initMeshes():
 		# Create multi meshes for each subdivision level
 		var cVoxelSize: float = chunkSize
 		while cVoxelSize > smallestVoxelSize:
 			cVoxelSize /= 2
 
 			if cVoxelSize <= largestVoxelSize:
-				# Create the multi mesh instance
-				var multiMesh: MultiMesh = MultiMesh.new()
-				multiMesh.transform_format = MultiMesh.TRANSFORM_3D
-				multiMesh.use_colors = true
-				multiMesh.use_custom_data = false
-				multiMesh.instance_count = 0
-				multiMesh.mesh = BoxMesh.new()
-				multiMesh.mesh.size = Vector3(cVoxelSize, cVoxelSize, cVoxelSize)
-				var meshInstance: MultiMeshInstance3D = MultiMeshInstance3D.new()
-				meshInstance.multimesh = multiMesh
-				# Add material
-				meshInstance.material_override = StandardMaterial3D.new()
-				meshInstance.material_override.albedo_color = Color(1, 1, 1)
-				meshInstance.material_override.vertex_color_use_as_albedo = true
-				# Add to scene
-				add_child(meshInstance)
-				multiMeshes[cVoxelSize] = [multiMesh]
+				# Create the multi mesh instances per material
+				var meshes = {}
+				var materials = get_parent().voxelMaterials
+				for material in materials:
+					var multiMesh: MultiMesh = MultiMesh.new()
+					multiMesh.transform_format = MultiMesh.TRANSFORM_3D
+					multiMesh.use_colors = true
+					multiMesh.use_custom_data = false
+					multiMesh.instance_count = 0
+					multiMesh.mesh = BoxMesh.new()
+					multiMesh.mesh.size = Vector3(cVoxelSize, cVoxelSize, cVoxelSize)
+					var meshInstance: MultiMeshInstance3D = MultiMeshInstance3D.new()
+					meshInstance.multimesh = multiMesh
+					# Add material
+					meshInstance.material_override = materials[material]
+					# Add to scene
+					add_child(meshInstance)
+					# Add to array
+					meshes[material] = [multiMesh, []]
+				# Add all arrays to the multiMeshes array
+				multiMeshes[cVoxelSize] = meshes
 
 		# Create the first subdivision
 		subdivideVoxel(pos, chunkSize)
@@ -171,19 +201,20 @@ class Chunk:
 	func rerenderMultiMeshes():
 		# Count number of voxels at each size, and set instance count, and create the meshes
 		for size in multiMeshes:
-			if multiMeshes[size][0].instance_count != len(multiMeshes[size]) - 1:
-				multiMeshes[size][0].instance_count = len(multiMeshes[size]) - 1
-				for i in range(len(multiMeshes[size])):
-					if i > 0:
-						multiMeshes[size][0].set_instance_transform(
-							i - 1, Transform3D(Basis(), multiMeshes[size][i][0])
-						)
-						multiMeshes[size][0].set_instance_color(i - 1, multiMeshes[size][i][1])
+			for material in multiMeshes[size]:
+				var mesh = multiMeshes[size][material][0]
+				var meshArray = multiMeshes[size][material][1]
+				if mesh.instance_count != len(meshArray):
+					mesh.instance_count = len(meshArray)
+					for i in range(len(meshArray)):
+						mesh.set_instance_transform(i, Transform3D(Basis(), meshArray[i][0]))
+						mesh.set_instance_color(i, meshArray[i][1])
 
 	func renderVoxel(pos2d, pos3d, data2d, data3d, size):
 		# Color from dark to light gray as height increases
 		var shade: float = pos3d.y / 30
 		var color: Color = Color(0.5 + shade, 0.4 + shade, 0.3 + shade)
+		var material: String = 'standard'
 		# Give the color horizontal lines from noise to make it look more natural
 		var noiseShade: float = (
 			data2d.worldNoise.get_noise_1d(pos3d.y * 20 + pos3d.x * 0.01 + pos3d.z + 0.01)
@@ -196,10 +227,12 @@ class Chunk:
 		# Add blue magic lines based on 3d noise
 		if pos3d.y > -2:
 			var noiseMagic: float = data2d.worldNoise.get_noise_3dv(pos3d * 2)
-			color += Color(0, 0, 1 if abs(noiseMagic) < 0.05 else 0)
+			if abs(noiseMagic) < 0.05:
+				color = color * 0.1 + Color(0, 0, 1 - abs(noiseMagic) * 10)
+				material = 'bluemagic'
 
 		# Add mesh to multi mesh
-		multiMeshes[size].append([data3d.posJittered, color])
+		multiMeshes[size][material][1].append([data3d.posJittered, color])
 
 		# Add collision shape
 		# if size >= 0.5:
@@ -313,7 +346,7 @@ func _process(_delta):
 	for i in range(renderDistance**2):
 		if (-hRD <= x and x <= hRD) and (-hRD <= z and z <= hRD):
 			# Get chunk position
-			for y in [0, -1]:
+			for y in [0, -1, 1]:
 				# Get chunks distance for quality level
 				var chunkDistance: float = Vector3(x, y, z).length()
 				# Ignore chunks in a radius outside the render distance
@@ -326,6 +359,7 @@ func _process(_delta):
 				if chunk == null:
 					chunk = Chunk.new(renderChunkPos)
 					add_child(chunk)
+					chunk.initMeshes()
 					chunks[renderChunkPos] = chunk
 				else:
 					# Get the chunks minimum voxel size, based on how close it is to the camera, halved from max each time
@@ -375,9 +409,11 @@ func _process(_delta):
 			chunks[chunkPos].queue_free()
 			chunks.erase(chunkPos)
 		else:
-			totalMeshes += chunks[chunkPos].multiMeshes.size()
-			for multiMesh in chunks[chunkPos].multiMeshes:
-				totalVoxels += multiMesh.get_instance_count()
+			for size in chunks[chunkPos].multiMeshes:
+				for material in chunks[chunkPos].multiMeshes[size]:
+					var mesh = chunks[chunkPos].multiMeshes[size][material][0]
+					totalMeshes += 1
+					totalVoxels += mesh.instance_count
 
 	# Print stats
 	var message: Array = []
