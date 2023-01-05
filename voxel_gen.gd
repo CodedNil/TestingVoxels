@@ -8,8 +8,7 @@ const roomSpacing: float = 70
 
 const renderDistance: int = 24
 
-const maxReleasePerFrame: int = 500  # Max number of subdivisions to release each update frame
-const msBudget: float = 6  # Max time to spend on subdivision per update frame
+const msBudget: float = 12  # Max time to spend on subdivision per update frame
 
 # Get number of quality levels, based on the largest and smallest voxel size
 const nQualityLevels: int = int(log(largestVoxelSize / smallestVoxelSize) / log(2))
@@ -262,18 +261,16 @@ class Chunk:
 						progressSubdivisions.append([pos2, nVoxelSize])
 
 	# Progress on subdivisions
-	func progress(nSubdivisions, startTime):
+	func progress(startTime):
 		var newProgress = []
 		for subdivision in progressSubdivisions:
 			# Try to maintain a good framerate
-			if Time.get_ticks_msec() - startTime > msBudget or nSubdivisions > maxReleasePerFrame:
+			if Time.get_ticks_msec() - startTime > msBudget:
 				newProgress.append(subdivision)
 			else:
 				subdivideVoxel(subdivision[0], subdivision[1])
-				nSubdivisions += 1
 		progressSubdivisions = newProgress
 		rerenderMultiMeshes()
-		return nSubdivisions
 
 	# Release subdivisions
 	func releaseSubdivisions(newVoxelSize):
@@ -365,12 +362,9 @@ func _process(_delta):
 
 	# Progress on priority chunk
 	if chunkToProgress.size() != 0:
-		var nSubdivisions = 0
 		for i in range(20):
 			var chunk = chunkToProgress.pop_back()
-			nSubdivisions += chunk[1].progress(nSubdivisions, startTime)
-			if nSubdivisions > maxReleasePerFrame:
-				break
+			chunk[1].progress(startTime)
 			# Try to maintain a good framerate
 			if Time.get_ticks_msec() - startTime > msBudget:
 				break
@@ -381,7 +375,7 @@ func _process(_delta):
 	var totalVoxels = 0
 	var totalMeshes = 0
 	for chunkPos in chunks:
-		if chunkPos.distance_to(cameraPos) > chunkSize * renderDistance * 2:
+		if chunkPos.distance_to(cameraPos) > renderDistance * chunkSize:
 			chunks[chunkPos].queue_free()
 			chunks.erase(chunkPos)
 		else:
