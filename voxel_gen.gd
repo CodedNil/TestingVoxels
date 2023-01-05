@@ -6,9 +6,9 @@ const smallestVoxelSize: float = 0.25
 
 const roomSpacing: float = 70
 
-const renderDistance: int = 7
-const renderVerticalBounds: float = 10
+const renderDistance: int = 24
 
+const maxChunksPerFrame: int = 3 # Max number of chunks to generate each update frame
 const maxReleasePerFrame: int = 400  # Max number of subdivisions to release each update frame
 
 # Get number of quality levels, based on the largest and smallest voxel size
@@ -297,16 +297,24 @@ func _process(_delta):
 	print("FPS ", Engine.get_frames_per_second())
 
 	# Only update one chunk per frame max
-	var updatedChunk = false
+	var newChunks: int = 0
 	var chunkToProgress = []
 	var chunkToRelease = null
 	var renderDists = [0]
 	for dist in range(1, renderDistance):
 		renderDists.append(dist)
 		renderDists.append(-dist)
-	for x in renderDists:
-		for z in renderDists:
-			for y in renderDists:
+	
+	# Loop through chunks in a spiral pattern
+	var hRD: float = float(renderDistance) / 2
+	var x: float = 0
+	var z: float = 0
+	var dx: float = 0
+	var dz: float = -1
+	for i in range(renderDistance**2):
+		if (-hRD <= x and x <= hRD) and (-hRD <= z and z <= hRD):
+			# Get chunk position
+			for y in [0, -1]:
 				# Get chunks distance for quality level
 				var chunkDistance = Vector3(x, y, z).length()
 				# Get the chunks minimum voxel size, based on how close it is to the camera, halved from max each time
@@ -315,21 +323,16 @@ func _process(_delta):
 				)
 				var newVoxelSize = largestVoxelSize / pow(2, subdivisionLevel)
 
-				var renderChunkPos = cameraChunkPos + Vector3(x, y, z) * chunkSize
-				# Skip vertical chunks
-				if (
-					renderChunkPos.y > renderVerticalBounds
-					or renderChunkPos.y < -renderVerticalBounds
-				):
-					continue
+				var renderChunkPos = Vector3(cameraChunkPos.x + x * chunkSize, y * chunkSize, cameraChunkPos.z + z * chunkSize)
 
 				var chunk = chunks.get(renderChunkPos)
 				if chunk == null:
 					chunk = Chunk.new(renderChunkPos)
 					add_child(chunk)
 					chunks[renderChunkPos] = chunk
-					updatedChunk = true
-					break
+					newChunks += 1
+					if newChunks > maxChunksPerFrame:
+						break
 				else:
 					if chunk.progressSubdivisions.size() != 0:
 						chunkToProgress.append(chunk)
@@ -341,9 +344,15 @@ func _process(_delta):
 							and chunk.progressSubdivisions.size() == 0
 						):
 							chunkToRelease = chunk
-			if updatedChunk:
-				break
-		if updatedChunk:
+		# Rotate the spiral
+		if (x == z) or (x < 0 and x == -z) or (x > 0 and x == 1 - z):
+			var t = dx
+			dx = -dz
+			dz = t
+		x += dx
+		z += dz
+
+		if newChunks > maxChunksPerFrame:
 			break
 
 	# Progress on random chunk
