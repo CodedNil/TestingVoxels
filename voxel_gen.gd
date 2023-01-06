@@ -16,26 +16,16 @@ const nQualityLevels: int = int(log(largestVoxelSize / smallestVoxelSize) / log(
 
 # Create noise generator class that can be initialised then have functions within
 class DataGenerator:
-	# A function to get a noise value with given frequency and seed, caches the fastnoiselite
-	var noises: Dictionary = {}
-
-	func getNoise(frequency, nseed):
-		var key: String = str(frequency) + ";" + str(nseed)
-		if key in noises:
-			return noises[key]
-		else:
-			var noise: FastNoiseLite = FastNoiseLite.new()
-			noise.frequency = frequency
-			noise.seed = nseed
-			noises[key] = noise
-			return noise
+	var worldNoise: FastNoiseLite = FastNoiseLite.new()
+	func _init():
+		worldNoise.frequency = 0.03
+		worldNoise.seed = 1234
 
 	# Get data for a 2d point in the world
 	func get_data_2d(pos2d):
 		# Base world variables
-		# World height offset for nice gradient slopes, -2 to 2, could have caves going uphill or downhill
-		var worldNoise: FastNoiseLite = getNoise(0.03, 1234)
-		var height: float = worldNoise.get_noise_2dv(pos2d / 10) * 10
+		# World elevation offset for nice gradient slopes, -2 to 2, could have caves going uphill or downhill
+		var elevation: float = worldNoise.get_noise_2dv(pos2d / 10) * 10
 		# Temperature scale, between 0 cold and 1 hot
 		var temperature: float = 0.5 + worldNoise.get_noise_2dv(pos2d) * 0.5
 		# Humidity scale, between 0 dry and 1 wet
@@ -64,8 +54,8 @@ class DataGenerator:
 
 		# Calculate room size, based on noise from the angle
 		var roomBaseSize: float = 15 + worldNoise.get_noise_1d(roomSeed) * 15
-		var roomSize0: float = roomBaseSize + getNoise(0.3, roomSeed).get_noise_1d(-PI) * roomBaseSize
-		var roomSize: float = roomBaseSize + getNoise(0.3, roomSeed).get_noise_1d(roomAngle) * roomBaseSize
+		var roomSize0: float = roomBaseSize + worldNoise.get_noise_2d(roomSeed, -PI * 10) * roomBaseSize
+		var roomSize: float = roomBaseSize + worldNoise.get_noise_2d(roomSeed, roomAngle * 10) * roomBaseSize
 		# For the last 25% of the angle, so from half pi to pi, lerp towards roomSize0
 		var roomSizeLerp: float = (
 			lerp(roomSize, roomSize0, (roomAngle - PI / 2) / (PI / 2))
@@ -81,8 +71,7 @@ class DataGenerator:
 		)
 
 		return {
-			"worldNoise": worldNoise,
-			"height": height,
+			"elevation": elevation,
 			"temperature": temperature,
 			"humidity": humidity,
 			"lushness": lushness,
@@ -94,13 +83,13 @@ class DataGenerator:
 		}
 
 	func get_data_3d(data2d, pos2d, pos3d):
-		var heightNoise = data2d.worldNoise.get_noise_2dv(pos2d * 3)
+		var heightNoise: float = worldNoise.get_noise_2dv(pos2d * 3)
 
-		var roomHeight: float = 4 if pos3d.y < 0 else 2 + heightNoise * 0.5
+		var roomHeight: float = 4.0 if pos3d.y < 0 else 2 + heightNoise * 0.5
 		var roomDist3d: float = Vector3(pos3d.x - data2d.roomPosition.x, pos3d.y * roomHeight, pos3d.z - data2d.roomPosition.y).length()
 		var roomInside3d: bool = roomDist3d < data2d.roomSize
 
-		var corridorHeight: float = 4 if pos3d.y < 0 else 2 + heightNoise * 0.5
+		var corridorHeight: float = 4.0 if pos3d.y < 0 else 2 + heightNoise * 0.5
 		var corridorDist3d: float = Vector2(data2d.corridorDist, pos3d.y * corridorHeight / 2).length()
 		var corridorInside3d: bool = corridorDist3d < data2d.corridorWidth
 
@@ -115,11 +104,11 @@ class DataGenerator:
 
 		# Jitter the pos3d
 		var posJittered: Vector3 = Vector3(pos3d.x, pos3d.y, pos3d.z)
-		# Add height to y based on noise
-		posJittered.y += data2d.height
+		# Add elevation to y based on noise
+		posJittered.y += data2d.elevation
 		# Add jiggle to x and z based on noise
-		posJittered.x += (data2d.worldNoise.get_noise_2dv(Vector2(pos3d.z, pos3d.y)) * 0.5)
-		posJittered.z += (data2d.worldNoise.get_noise_2dv(Vector2(pos3d.x, pos3d.y)) * 0.5)
+		posJittered.x += (worldNoise.get_noise_2dv(Vector2(pos3d.z, pos3d.y)) * 0.5)
+		posJittered.z += (worldNoise.get_noise_2dv(Vector2(pos3d.x, pos3d.y)) * 0.5)
 
 		return {
 			"posJittered": posJittered,
@@ -212,23 +201,23 @@ class Chunk:
 						mesh.set_instance_transform(i, Transform3D(Basis(), meshArray[i][0]))
 						mesh.set_instance_color(i, meshArray[i][1])
 
-	func renderVoxel(pos2d, pos3d, data2d, data3d, size):
-		# Color from dark to light gray as height increases
+	func renderVoxel(pos2d, pos3d, data3d, size):
+		# Color from dark to light gray as elevation increases
 		var shade: float = pos3d.y / 30
 		var color: Color = Color(0.5 + shade, 0.4 + shade, 0.3 + shade)
 		var material: String = 'standard'
 		# Give the color horizontal lines from noise to make it look more natural
 		var noiseShade: float = (
-			data2d.worldNoise.get_noise_1d(pos3d.y * 20 + pos3d.x * 0.01 + pos3d.z + 0.01)
+			dataGen.worldNoise.get_noise_1d(pos3d.y * 20 + pos3d.x * 0.01 + pos3d.z + 0.01)
 			* 0.2
 		)
 		color += Color(noiseShade, noiseShade, noiseShade)
 		# Add brown colors based on 2d noise
-		var noiseColor: float = abs(data2d.worldNoise.get_noise_2dv(pos2d * 0.1))
+		var noiseColor: float = abs(dataGen.worldNoise.get_noise_2dv(pos2d * 0.1))
 		color += Color(noiseColor, noiseColor * 0.5, 0) * 0.1
 		# Add blue magic lines based on 3d noise
 		if pos3d.y > -2:
-			var noiseMagic: float = data2d.worldNoise.get_noise_3dv(pos3d * 2)
+			var noiseMagic: float = dataGen.worldNoise.get_noise_3dv(pos3d * 2)
 			if abs(noiseMagic) < 0.05:
 				color = color * 0.1 + Color(0, 0, 1 - abs(noiseMagic) * 10)
 				material = 'bluemagic'
@@ -254,7 +243,7 @@ class Chunk:
 			var data3d: Dictionary = dataGen.get_data_3d_advanced(data2d, pos2d, pos3d)
 			# If outside the room, render
 			if not data3d.inside3d:
-				renderVoxel(pos2d, pos3d, data2d, data3d, voxelSize)
+				renderVoxel(pos2d, pos3d, data3d, voxelSize)
 			return
 
 		if voxelSize <= largestVoxelSize:
@@ -278,7 +267,7 @@ class Chunk:
 				var pos2d: Vector2 = Vector2(pos3d.x, pos3d.z)
 				var data2d: Dictionary = dataGen.get_data_2d(pos2d)
 				var data3d: Dictionary = dataGen.get_data_3d_advanced(data2d, pos2d, pos3d)
-				renderVoxel(pos2d, pos3d, data2d, data3d, voxelSize)
+				renderVoxel(pos2d, pos3d, data3d, voxelSize)
 				return
 			# If fully air, skip
 			if nAirVoxels == 8:
