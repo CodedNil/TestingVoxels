@@ -94,11 +94,13 @@ class DataGenerator:
 		}
 
 	func get_data_3d(data2d, pos2d, pos3d):
-		var roomHeight: float = 4 if pos3d.y < 0 else 2 + getNoise(0.1, 12345).get_noise_2dv(pos2d) * 0.5
+		var heightNoise = data2d.worldNoise.get_noise_2dv(pos2d * 3)
+
+		var roomHeight: float = 4 if pos3d.y < 0 else 2 + heightNoise * 0.5
 		var roomDist3d: float = Vector3(pos3d.x - data2d.roomPosition.x, pos3d.y * roomHeight, pos3d.z - data2d.roomPosition.y).length()
 		var roomInside3d: bool = roomDist3d < data2d.roomSize
 
-		var corridorHeight: float = 4 if pos3d.y < 0 else 2 + getNoise(0.1, 12345).get_noise_2dv(pos2d) * 0.5
+		var corridorHeight: float = 4 if pos3d.y < 0 else 2 + heightNoise * 0.5
 		var corridorDist3d: float = Vector2(data2d.corridorDist, pos3d.y * corridorHeight / 2).length()
 		var corridorInside3d: bool = corridorDist3d < data2d.corridorWidth
 
@@ -236,9 +238,12 @@ class Chunk:
 
 		# Add collision shape
 		# if size >= 0.5:
+		# 	# Create a new BoxMesh
+		# 	var box = BoxMesh.new()
+		# 	box.size = Vector3(size, size, size)
 		# 	var shape: CollisionShape3D = CollisionShape3D.new()
 		# 	shape.shape = box
-		# 	mesh.add_child(shape)
+		# 	add_child(shape)
 
 	# Subdivide a voxel into 8 smaller voxels, potentially subdivide those further
 	func subdivideVoxel(pos3d, voxelSize):
