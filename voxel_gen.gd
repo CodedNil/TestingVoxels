@@ -45,8 +45,8 @@ class DataGenerator:
 
 		# Get position offset by noise, so it is not on a perfect grid
 		var horizontalOffset = Vector2(
-			worldNoise.get_noise_1d(pos2d.y / 4) * 60,
-			worldNoise.get_noise_1d(pos2d.x / 4) * 60,
+			worldNoise.get_noise_1d(pos2d.y / 4) * (roomSpacing / 2),
+			worldNoise.get_noise_1d(pos2d.x / 4) * (roomSpacing / 2)
 		)
 
 		# Get data for the room
