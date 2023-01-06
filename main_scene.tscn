@@ -10,7 +10,6 @@
 size = Vector3(0.1, 0.1, 1)
 
 [sub_resource type="Environment" id="Environment_0p6un"]
-background_mode = 1
 ambient_light_source = 2
 ambient_light_color = Color(0.196078, 0.196078, 0.196078, 1)
 reflected_light_source = 1
