@@ -257,6 +257,7 @@ class Chunk:
 			var nAirVoxels: int = 0
 			# Smaller voxels have higher threshold for air, so less small voxels made
 			var maxAirVoxels: int = 4 if voxelSize == 0.5 else 2 if voxelSize == 1 else 0
+			# TODO Store this data for use below which is repeated
 			for x in [-0.5, 0.5]:
 				for z in [-0.5, 0.5]:
 					var pos2d: Vector2 = Vector2(pos3d.x + x * voxelSize, pos3d.z + z * voxelSize)
@@ -279,8 +280,8 @@ class Chunk:
 				return
 		# Otherwise, subdivide it into 8 smaller voxels
 		for x in [-0.5, 0.5]:
-			for y in [-0.5, 0.5]:
-				for z in [-0.5, 0.5]:
+			for z in [-0.5, 0.5]:
+				for y in [-0.5, 0.5]:
 					var nVoxelSize: float = voxelSize / 2
 					var pos2: Vector3 = pos3d + Vector3(x, y, z) * nVoxelSize
 
@@ -292,6 +293,7 @@ class Chunk:
 
 	# Progress on subdivisions
 	func progress(startTime):
+		var subdivisionRate: int = 0
 		var newProgress: Array = []
 		for subdivision in progressSubdivisions:
 			# Try to maintain a good framerate
@@ -299,8 +301,10 @@ class Chunk:
 				newProgress.append(subdivision)
 			else:
 				subdivideVoxel(subdivision[0], subdivision[1])
+				subdivisionRate += 1
 		progressSubdivisions = newProgress
 		rerenderMultiMeshes()
+		return subdivisionRate
 
 	# Release subdivisions
 	func releaseSubdivisions(newVoxelSize):
@@ -310,33 +314,17 @@ class Chunk:
 
 
 var chunks: Dictionary = {}
+var chunkToProgress: Array = []
+var subdivisionRates = []
 
-func sortDescending(a, b):
-	if a[0] > b[0]:
+func sortAscending(a, b):
+	if a[0] < b[0]:
 		return true
 	return false
 
-func _process(_delta):
-	# Get time to calculate ms budget
-	var startTime: float = Time.get_ticks_msec()
+func getChunksToProgress(camera, cameraPos, cameraChunkPos):
+	chunkToProgress = []
 
-	# Find chunks near the camera that need to be created
-	var camera: Node3D = get_parent().get_node("Camera3D")
-	var cameraPos: Vector3 = camera.global_transform.origin
-
-	var cameraChunkPos: Vector3 = Vector3(
-		floor(cameraPos.x / chunkSize) * chunkSize,
-		floor(cameraPos.y / chunkSize) * chunkSize,
-		floor(cameraPos.z / chunkSize) * chunkSize
-	)
-
-	# Only update one chunk per frame max
-	var chunkToProgress: Array = []
-	var renderDists: Array = [0]
-	for dist in range(1, renderDistance):
-		renderDists.append(dist)
-		renderDists.append(-dist)
-	
 	# Loop through chunks in a spiral pattern
 	var hRD: float = float(renderDistance) / 2
 	var x: float = 0
@@ -387,19 +375,53 @@ func _process(_delta):
 		z += dz
 
 	# Sort chunks by priority
-	chunkToProgress.sort_custom(sortDescending)
-	# Perhaps do the entire above only once every x seconds (or if chunkToProgress is empty)
+	chunkToProgress.sort_custom(sortAscending)
+	# Remove all but the last 20 elements
+	if chunkToProgress.size() > 20:
+		chunkToProgress.resize(20)
+	# Reverse the array so the highest priority is last
+	chunkToProgress.reverse()
+
+func _process(_delta):
+	# Get time to calculate ms budget
+	var startTime: float = Time.get_ticks_msec()
+
+	# Find chunks near the camera that need to be created
+	var camera: Node3D = get_parent().get_node("Camera3D")
+	var cameraPos: Vector3 = camera.global_transform.origin
+
+	var cameraChunkPos: Vector3 = Vector3(
+		floor(cameraPos.x / chunkSize) * chunkSize,
+		floor(cameraPos.y / chunkSize) * chunkSize,
+		floor(cameraPos.z / chunkSize) * chunkSize
+	)
+
+	var subdivisionRate: int = 0
 
 	# Progress on priority chunk
 	if chunkToProgress.size() != 0:
 		for i in range(20):
 			var chunk: Array = chunkToProgress.pop_back()
-			chunk[1].progress(startTime)
+			subdivisionRate += chunk[1].progress(startTime)
 			# Try to maintain a good framerate
 			if Time.get_ticks_msec() - startTime > msBudget:
 				break
 			if chunkToProgress.size() == 0:
+				# Get new chunks to progress
+				getChunksToProgress(camera, cameraPos, cameraChunkPos)
 				break
+	else:
+		# Get new chunks to progress
+		getChunksToProgress(camera, cameraPos, cameraChunkPos)
+	
+	# Add subdivision rate to array
+	subdivisionRates.append(subdivisionRate)
+	# Average subdivision rate over the last 20 frames
+	var avgSubdivisionRate: float = 0
+	if subdivisionRates.size() > 20:
+		for i in range(20):
+			avgSubdivisionRate += subdivisionRates[len(subdivisionRates) - 1 - i]
+		avgSubdivisionRate /= 20
 
 	# Remove chunks that are too far away
 	var totalVoxels: int = 0
@@ -416,9 +438,10 @@ func _process(_delta):
 					totalVoxels += mesh.instance_count
 
 	# Print stats
-	var message: Array = []
+	var message: Array[String] = []
 	message.append("FPS: " + str(Engine.get_frames_per_second()))
 	message.append("Total voxels: " + str(totalVoxels))
 	message.append("Total meshes: " + str(totalMeshes))
 	message.append("Total chunks: " + str(chunks.size()))
+	message.append("Subdivision rate: " + str(avgSubdivisionRate))
 	print('\n'.join(message))
