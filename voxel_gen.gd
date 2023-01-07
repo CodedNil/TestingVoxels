@@ -1,7 +1,7 @@
 extends Node3D
 
 const chunkSize: float = 16.0
-const largestVoxelSize: float = 8.0
+const largestVoxelSize: float = 4.0
 const smallestVoxelSize: float = 0.25
 
 const roomSpacing: float = 60
@@ -143,7 +143,7 @@ class DataGenerator:
 			var noiseMagic: float = worldNoise.get_noise_3dv(pos3d * 2)
 			if abs(noiseMagic) < 0.05:
 				color = color * 0.1 + Color(0, 0, 1 - abs(noiseMagic) * 10)
-				material = 'bluemagic'
+				material = 'emissive'
 
 		# Add color on floors
 		if pos3d.y < (data2d.roomFloor - 4) * 4 - 2:
@@ -174,7 +174,6 @@ class DataGenerator:
 			"posJittered": posJittered,
 		}
 
-# Define the materials
 var voxelMaterials: Dictionary = {}
 var boxMeshes: Dictionary = {}
 var dataGenerator: DataGenerator = DataGenerator.new()
@@ -187,23 +186,9 @@ func _ready() -> void:
 			boxMeshes[cVoxelSize] = BoxMesh.new()
 			boxMeshes[cVoxelSize].size = Vector3(cVoxelSize, cVoxelSize, cVoxelSize)
 
-	# Standard
-	voxelMaterials['standard'] = StandardMaterial3D.new()
-	voxelMaterials['standard'].albedo_color = Color(1, 1, 1)
-	voxelMaterials['standard'].vertex_color_use_as_albedo = true
-	voxelMaterials['standard'].shading_mode = StandardMaterial3D.SHADING_MODE_PER_VERTEX
-	voxelMaterials['standard'].roughness = 1
-	# Blue magic
-	voxelMaterials['bluemagic'] = StandardMaterial3D.new()
-	voxelMaterials['bluemagic'].albedo_color = Color(1, 1, 1)
-	voxelMaterials['bluemagic'].vertex_color_use_as_albedo = true
-	voxelMaterials['bluemagic'].shading_mode = StandardMaterial3D.SHADING_MODE_PER_VERTEX
-	voxelMaterials['bluemagic'].emission_enabled = true
-	voxelMaterials['bluemagic'].emission_energy = 1
-	voxelMaterials['bluemagic'].emission = Color(0, 0, 0.5)
-	voxelMaterials['bluemagic'].rim_enabled = true
-	voxelMaterials['bluemagic'].rim = 1
-	voxelMaterials['bluemagic'].rim_tint = 0.5
+	# Define the materials
+	voxelMaterials['standard'] = preload("res://materials/voxel_standard.tres")
+	voxelMaterials['emissive'] = preload("res://materials/voxel_emissive.tres")
 
 
 # Chunk class
