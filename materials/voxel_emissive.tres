@@ -3,7 +3,6 @@
 [resource]
 vertex_color_use_as_albedo = true
 emission_enabled = true
-emission = Color(1, 1, 1, 1)
-emission_energy_multiplier = 0.5
-emission_operator = 1
+emission = Color(0.196078, 0.196078, 0.705882, 1)
+emission_energy_multiplier = 0.2
 rim_enabled = true

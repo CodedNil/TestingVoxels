@@ -479,9 +479,7 @@ func _process(_delta: float) -> void:
 	if frameNumber % 20 == 0:
 		var message: Array[String] = []
 		message.append("FPS: " + str(Engine.get_frames_per_second()) + ' ' + str(Time.get_ticks_msec() / 1000.0))
-		message.append("Total voxels: " + str(totalVoxels))
-		# message.append("Total meshes: " + str(totalMeshes))
-		# message.append("Total chunks: " + str(chunks.size()))
+		message.append("Voxels: " + str(totalVoxels) + ' Meshes: ' + str(totalMeshes) + ' Chunks: ' + str(chunks.size()))
 		message.append("Subdivision rate: " + str(avgSubdivisionRate))
 		# 2d Data
 		var data2d: Dictionary = dataGenerator.get_data_2d(Vector2(cameraPos.x, cameraPos.z))
