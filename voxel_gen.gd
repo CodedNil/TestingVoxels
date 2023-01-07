@@ -1,10 +1,10 @@
-extends Node3D
+extends StaticBody3D
 
 const chunkSize: float = 16.0
 const largestVoxelSize: float = 4.0
 const smallestVoxelSize: float = 0.25
 
-const roomSpacing: float = 60
+const roomSpacing: float = 80
 
 const renderDistance: int = 24
 
@@ -49,8 +49,8 @@ class DataGenerator:
 
 		# Get position offset by noise, so it is not on a perfect grid
 		var horizontalOffset = Vector2(
-			worldNoise.get_noise_1d(pos2d.y / 4) * (roomSpacing / 2),
-			worldNoise.get_noise_1d(pos2d.x / 4) * (roomSpacing / 2)
+			worldNoise.get_noise_1d(pos2d.y / 4) * (roomSpacing / 3),
+			worldNoise.get_noise_1d(pos2d.x / 4) * (roomSpacing / 3)
 		)
 
 		# Get data for the room
@@ -68,10 +68,10 @@ class DataGenerator:
 		var roomDist: float = pos2d.distance_to(roomPosition)
 
 		# Calculate room size, based on noise from the angle
-		var roomBaseSize: float = lerp(15, 20, smoothness) + worldNoise.get_noise_1d(roomSeed) * lerp(15, 2, smoothness)
+		var roomBaseSize: float = lerp(20, 25, smoothness) + worldNoise.get_noise_1d(roomSeed) * lerp(15, 2, smoothness)
 		var roomSizeNoise = 5 + (1 - smoothness) * 30
-		var roomSize0: float = roomBaseSize + worldNoise.get_noise_2d(roomSeed, -PI * roomSizeNoise) * roomBaseSize / 2
-		var roomSize: float = roomBaseSize + worldNoise.get_noise_2d(roomSeed, roomAngle * roomSizeNoise) * roomBaseSize / 2
+		var roomSize0: float = roomBaseSize + worldNoise.get_noise_2d(roomSeed, -PI * roomSizeNoise) * roomBaseSize / 3 * smoothness
+		var roomSize: float = roomBaseSize + worldNoise.get_noise_2d(roomSeed, roomAngle * roomSizeNoise) * roomBaseSize / 3 * smoothness
 		# For the last 25% of the angle, so from half pi to pi, lerp towards roomSize0
 		var roomSizeLerp: float = (
 			lerp(roomSize, roomSize0, (roomAngle - PI / 2) / (PI / 2))
@@ -176,6 +176,7 @@ class DataGenerator:
 
 var voxelMaterials: Dictionary = {}
 var boxMeshes: Dictionary = {}
+var boxShapes: Dictionary = {}
 var dataGenerator: DataGenerator = DataGenerator.new()
 func _ready() -> void:
 	# Create the box meshes for each voxel size
@@ -185,6 +186,8 @@ func _ready() -> void:
 		if cVoxelSize <= largestVoxelSize:
 			boxMeshes[cVoxelSize] = BoxMesh.new()
 			boxMeshes[cVoxelSize].size = Vector3(cVoxelSize, cVoxelSize, cVoxelSize)
+			boxShapes[cVoxelSize] = BoxShape3D.new()
+			boxShapes[cVoxelSize].extents = Vector3(cVoxelSize, cVoxelSize, cVoxelSize) / 2
 
 	# Define the materials
 	voxelMaterials['standard'] = preload("res://materials/voxel_standard.tres")
@@ -260,12 +263,10 @@ class Chunk:
 
 		# Add collision shape
 		# if size >= 0.5:
-		# 	# Create a new BoxMesh
-		# 	var box = BoxMesh.new()
-		# 	box.size = Vector3(size, size, size)
-		# 	var shape: CollisionShape3D = CollisionShape3D.new()
-		# 	shape.shape = box
-		# 	add_child(shape)
+		var shape: CollisionShape3D = CollisionShape3D.new()
+		shape.shape = get_parent().boxShapes[size]
+		shape.global_transform = Transform3D(Basis(), dataColor.posJittered)
+		get_parent().add_child(shape)
 
 	# Subdivide a voxel into 8 smaller voxels, potentially subdivide those further
 	func subdivideVoxel(pos3d: Vector3, voxelSize: float) -> void:
@@ -370,7 +371,7 @@ func getChunksToProgress(camera: Node3D, cameraPos: Vector3, cameraChunkPos: Vec
 	for i in range(renderDistance**2):
 		if (-hRD <= x and x <= hRD) and (-hRD <= z and z <= hRD):
 			# Get chunk position
-			for y in [0, 1]:
+			for y in [0, 1, -1]:
 				# Get chunks distance for quality level
 				var chunkDistance: float = Vector3(x, y, z).length()
 				# Ignore chunks in a radius outside the render distance

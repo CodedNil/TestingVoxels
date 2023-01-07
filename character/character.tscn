@@ -1,0 +1,32 @@
+[gd_scene load_steps=4 format=3 uid="uid://bddb6165oue81"]
+
+[ext_resource type="Script" path="res://character/character.gd" id="1_0ligw"]
+
+[sub_resource type="CapsuleMesh" id="CapsuleMesh_k5id2"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_k2r6o"]
+
+[node name="CharacterBody3D" type="CharacterBody3D"]
+floor_constant_speed = true
+script = ExtResource("1_0ligw")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+mesh = SubResource("CapsuleMesh_k5id2")
+skeleton = NodePath("")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("CapsuleShape3D_k2r6o")
+
+[node name="SpotLight3D" type="SpotLight3D" parent="."]
+light_indirect_energy = 3.0
+shadow_enabled = true
+spot_range = 60.0
+spot_attenuation = 1.03527
+spot_angle = 60.0
+spot_angle_attenuation = 1.41421
+
+[node name="CameraRotator" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.5, 0)
+
+[node name="Camera3D" type="Camera3D" parent="CameraRotator"]
+transform = Transform3D(1, 0, 0, 0, 0.939693, 0.34202, 0, -0.34202, 0.939693, 0, 1, 3)

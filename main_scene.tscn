@@ -1,8 +1,11 @@
-[gd_scene load_steps=7 format=3 uid="uid://bwuac0v14m6p2"]
+[gd_scene load_steps=9 format=3 uid="uid://bwuac0v14m6p2"]
 
-[ext_resource type="PackedScene" uid="uid://bt4mmd5oo0ys2" path="res://voxel_generator.tscn" id="1_ixr72"]
 [ext_resource type="Script" path="res://camera.gd" id="2_3e13j"]
 [ext_resource type="ArrayMesh" uid="uid://drdcvt3xi0fpm" path="res://character.obj" id="3_o8nm8"]
+[ext_resource type="Script" path="res://voxel_gen.gd" id="4_1a6st"]
+[ext_resource type="PackedScene" uid="uid://bddb6165oue81" path="res://character/character.tscn" id="4_dqolu"]
+
+[sub_resource type="BoxShape3D" id="BoxShape3D_1tb5w"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_32hhh"]
 
@@ -34,7 +37,12 @@ auto_exposure_min_sensitivity = 30.0
 
 [node name="MainScene" type="Node3D"]
 
-[node name="VoxelGenerator" parent="." instance=ExtResource("1_ixr72")]
+[node name="VoxelGenerator" type="StaticBody3D" parent="."]
+script = ExtResource("4_1a6st")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="VoxelGenerator"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1.16751, 1.23016)
+shape = SubResource("BoxShape3D_1tb5w")
 
 [node name="Camera3D" type="Camera3D" parent="."]
 transform = Transform3D(0.974761, 0.0943496, -0.202333, 6.09165e-10, 0.906308, 0.422618, 0.22325, -0.411952, 0.883434, -1.12917, 1, 3.31845)
@@ -62,3 +70,6 @@ surface_material_override/0 = SubResource("StandardMaterial3D_32hhh")
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = SubResource("Environment_0p6un")
 camera_attributes = SubResource("CameraAttributesPractical_eb5yk")
+
+[node name="character" parent="." instance=ExtResource("4_dqolu")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.51438, 1.22778)
