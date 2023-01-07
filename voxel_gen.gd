@@ -1,14 +1,14 @@
 extends Node3D
 
 const chunkSize: float = 16.0
-const largestVoxelSize: float = 4.0
+const largestVoxelSize: float = 8.0
 const smallestVoxelSize: float = 0.25
 
-const roomSpacing: float = 70
+const roomSpacing: float = 60
 
 const renderDistance: int = 24
 
-const msBudget: float = 12  # Max time to spend on subdivision per update frame
+const msBudget: float = 30  # Max time to spend on subdivision per update frame
 
 # Get number of quality levels, based on the largest and smallest voxel size
 const nQualityLevels: int = int(log(largestVoxelSize / smallestVoxelSize) / log(2))
@@ -176,8 +176,17 @@ class DataGenerator:
 
 # Define the materials
 var voxelMaterials: Dictionary = {}
-var dataGenerator = DataGenerator.new()
+var boxMeshes: Dictionary = {}
+var dataGenerator: DataGenerator = DataGenerator.new()
 func _ready() -> void:
+	# Create the box meshes for each voxel size
+	var cVoxelSize: float = chunkSize
+	while cVoxelSize > smallestVoxelSize:
+		cVoxelSize /= 2
+		if cVoxelSize <= largestVoxelSize:
+			boxMeshes[cVoxelSize] = BoxMesh.new()
+			boxMeshes[cVoxelSize].size = Vector3(cVoxelSize, cVoxelSize, cVoxelSize)
+
 	# Standard
 	voxelMaterials['standard'] = StandardMaterial3D.new()
 	voxelMaterials['standard'].albedo_color = Color(1, 1, 1)
@@ -221,7 +230,6 @@ class Chunk:
 		var cVoxelSize: float = chunkSize
 		while cVoxelSize > smallestVoxelSize:
 			cVoxelSize /= 2
-
 			if cVoxelSize <= largestVoxelSize:
 				# Create the multi mesh instances per material
 				var meshes = {}
@@ -232,8 +240,7 @@ class Chunk:
 					multiMesh.use_colors = true
 					multiMesh.use_custom_data = false
 					multiMesh.instance_count = 0
-					multiMesh.mesh = BoxMesh.new()
-					multiMesh.mesh.size = Vector3(cVoxelSize, cVoxelSize, cVoxelSize)
+					multiMesh.mesh = get_parent().boxMeshes[cVoxelSize]
 					var meshInstance: MultiMeshInstance3D = MultiMeshInstance3D.new()
 					meshInstance.multimesh = multiMesh
 					# Add material
@@ -378,7 +385,7 @@ func getChunksToProgress(camera: Node3D, cameraPos: Vector3, cameraChunkPos: Vec
 	for i in range(renderDistance**2):
 		if (-hRD <= x and x <= hRD) and (-hRD <= z and z <= hRD):
 			# Get chunk position
-			for y in [0, -1, 1]:
+			for y in [0, 1]:
 				# Get chunks distance for quality level
 				var chunkDistance: float = Vector3(x, y, z).length()
 				# Ignore chunks in a radius outside the render distance

@@ -1,13 +1,10 @@
-[gd_scene load_steps=8 format=3 uid="uid://bwuac0v14m6p2"]
+[gd_scene load_steps=7 format=3 uid="uid://bwuac0v14m6p2"]
 
 [ext_resource type="PackedScene" uid="uid://bt4mmd5oo0ys2" path="res://voxel_generator.tscn" id="1_ixr72"]
 [ext_resource type="Script" path="res://camera.gd" id="2_3e13j"]
 [ext_resource type="ArrayMesh" uid="uid://drdcvt3xi0fpm" path="res://character.obj" id="3_o8nm8"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_32hhh"]
-
-[sub_resource type="BoxMesh" id="BoxMesh_setls"]
-size = Vector3(0.1, 0.1, 1)
 
 [sub_resource type="Environment" id="Environment_0p6un"]
 ambient_light_source = 2
@@ -62,11 +59,6 @@ omni_range = 25.0
 transform = Transform3D(0.3, 0, 0, 0, 0.3, 0, 0, 0, 0.3, 0, 0, 0)
 mesh = ExtResource("3_o8nm8")
 surface_material_override/0 = SubResource("StandardMaterial3D_32hhh")
-
-[node name="FakeCamera3D" type="MeshInstance3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.27854, 0.875934, 2.51841)
-mesh = SubResource("BoxMesh_setls")
-skeleton = NodePath("")
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = SubResource("Environment_0p6un")
