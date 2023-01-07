@@ -21,9 +21,9 @@ class DataGenerator:
 		worldNoise.frequency = 0.03
 		worldNoise.seed = 1234
 	
-	# Get a noise value clamped from 0 to 1, but the noise is scaled up so 0.3 becomes 0
+	# Get a noise value clamped from 0 to 1, but the noise is scaled up to clamp extreme values
 	func getWorldsNoise(offset: float, pos2d: Vector2, scale: float) -> float:
-		return clamp((1 + worldNoise.get_noise_3d(offset * 1000, pos2d.x * scale, pos2d.y * scale) * 1.3) * 0.5, 0, 1)
+		return clamp((1 + worldNoise.get_noise_3d(offset * 1000, pos2d.x * scale, pos2d.y * scale) * 1.4) * 0.5, 0, 1)
 
 	# Get data for a point in the world
 	var cachedData2d: Dictionary = {}
@@ -39,13 +39,13 @@ class DataGenerator:
 		# Smoothness scale, between 0 and 1, 0 is flat, 1 is smooth
 		var smoothness: float = getWorldsNoise(0, pos2d, 0.1)
 		# Temperature scale, between 0 cold and 1 hot
-		var temperature: float = getWorldsNoise(1, pos2d, 1)
+		var temperature: float = getWorldsNoise(1, pos2d, 0.1)
 		# Humidity scale, between 0 dry and 1 wet
-		var humidity: float = getWorldsNoise(2, pos2d, 1)
+		var humidity: float = getWorldsNoise(2, pos2d, 0.1)
 		# Lushness scale, between 0 barren and 1 lush
-		var lushness: float = getWorldsNoise(3, pos2d, 1)
+		var lushness: float = getWorldsNoise(3, pos2d, 0.1)
 		# Development scale, between 0 undeveloped and 1 developed
-		var development: float = getWorldsNoise(4, pos2d, 1)
+		var development: float = getWorldsNoise(4, pos2d, 0.1)
 
 		# Get position offset by noise, so it is not on a perfect grid
 		var horizontalOffset = Vector2(
@@ -124,6 +124,55 @@ class DataGenerator:
 		var inside3d: bool = roomInside3d or corridorInside3d
 		cachedData3d[pos3d] = inside3d
 		return inside3d
+	
+	func get_data_color(pos2d: Vector2, pos3d: Vector3, data2d: Dictionary, size: float) -> Dictionary:
+		# Color from dark to light gray as elevation increases
+		var shade: float = pos3d.y / 30
+		var color: Color = Color(0.5 + shade, 0.4 + shade, 0.3 + shade)
+		var material: String = 'standard'
+		
+		# Give the color horizontal lines from noise to make it look more natural
+		var noiseShade: float = (0.5 + worldNoise.get_noise_1d(pos3d.y * 20 + pos3d.x * 0.01 + pos3d.z + 0.01) / 2) * 0.2
+		color += Color(noiseShade, noiseShade, noiseShade)
+		# Add brown colors based on 2d noise
+		var noiseColor: float = 0.5 + worldNoise.get_noise_2dv(pos2d * 0.1) / 2
+		color += Color(noiseColor, noiseColor * 0.5, 0) * 0.1
+
+		# Add blue magic lines based on 3d noise
+		if pos3d.y > -2 and size <= 1:
+			var noiseMagic: float = worldNoise.get_noise_3dv(pos3d * 2)
+			if abs(noiseMagic) < 0.05:
+				color = color * 0.1 + Color(0, 0, 1 - abs(noiseMagic) * 10)
+				material = 'bluemagic'
+
+		# Add color on floors
+		if pos3d.y < (data2d.roomFloor - 4) * 4 - 2:
+			# Slight offset on the noise to make it look more natural
+			var noiseOffset: float = worldNoise.get_noise_2dv(pos2d * 20) * 0.02
+
+			# Use sand color if temperature is high and humidity low
+			if data2d.temperature > 0.7 + noiseOffset and data2d.humidity < 0.3 + noiseOffset and material == 'standard':
+				var colorVariance: float = worldNoise.get_noise_2dv(pos2d * 2) * 0.15
+				color = Color(1 + colorVariance, 0.9 + colorVariance, 0.6 + colorVariance)
+			# Use grass color if humidity high
+			if data2d.humidity > 0.5 + noiseOffset and material == 'standard':
+				var colorVariance: float = worldNoise.get_noise_2dv(pos2d * 2) * 0.15
+				color = lerp(Color(0.3, 0.4, 0.1), Color(0.2, 0.4, 0.15), data2d.lushness) + Color(colorVariance, colorVariance, colorVariance)
+
+		# Jitter the pos3d
+		# Add jiggle to x and z based on noise
+		# Add elevation to y based on noise
+		var posJittered: Vector3 = Vector3(
+			pos3d.x + (worldNoise.get_noise_2dv(Vector2(pos3d.z, pos3d.y)) * 0.5),
+			pos3d.y + data2d.elevation,
+			pos3d.z + (worldNoise.get_noise_2dv(Vector2(pos3d.x, pos3d.y)) * 0.5)
+		)
+
+		return {
+			"color": color,
+			"material": material,
+			"posJittered": posJittered,
+		}
 
 # Define the materials
 var voxelMaterials: Dictionary = {}
@@ -213,34 +262,9 @@ class Chunk:
 						mesh.set_instance_color(i, meshArray[i][1])
 
 	func renderVoxel(pos2d: Vector2, pos3d: Vector3, data2d: Dictionary, size: float) -> void:
-		# Color from dark to light gray as elevation increases
-		var shade: float = pos3d.y / 30
-		var color: Color = Color(0.5 + shade, 0.4 + shade, 0.3 + shade)
-		var material: String = 'standard'
-		# Give the color horizontal lines from noise to make it look more natural
-		var noiseShade: float = (0.5 + dataGen.worldNoise.get_noise_1d(pos3d.y * 20 + pos3d.x * 0.01 + pos3d.z + 0.01) / 2) * 0.2
-		color += Color(noiseShade, noiseShade, noiseShade)
-		# Add brown colors based on 2d noise
-		var noiseColor: float = 0.5 + dataGen.worldNoise.get_noise_2dv(pos2d * 0.1) / 2
-		color += Color(noiseColor, noiseColor * 0.5, 0) * 0.1
-		# Add blue magic lines based on 3d noise
-		if pos3d.y > -2:
-			var noiseMagic: float = dataGen.worldNoise.get_noise_3dv(pos3d * 2)
-			if abs(noiseMagic) < 0.05:
-				color = color * 0.1 + Color(0, 0, 1 - abs(noiseMagic) * 10)
-				material = 'bluemagic'
-
-		# Jitter the pos3d
-		# Add jiggle to x and z based on noise
-		# Add elevation to y based on noise
-		var posJittered: Vector3 = Vector3(
-			pos3d.x + (dataGen.worldNoise.get_noise_2dv(Vector2(pos3d.z, pos3d.y)) * 0.5),
-			pos3d.y + data2d.elevation,
-			pos3d.z + (dataGen.worldNoise.get_noise_2dv(Vector2(pos3d.x, pos3d.y)) * 0.5)
-		)
-
+		var dataColor: Dictionary = dataGen.get_data_color(pos2d, pos3d, data2d, size)
 		# Add mesh to multi mesh
-		multiMeshes[size][material][1].append([posJittered, color])
+		multiMeshes[size][dataColor.material][1].append([dataColor.posJittered, dataColor.color])
 
 		# Add collision shape
 		# if size >= 0.5:
@@ -269,6 +293,20 @@ class Chunk:
 			var nAirVoxels: int = 0
 			# Smaller voxels have higher threshold for air, so less small voxels made
 			var maxAirVoxels: int = 4 if voxelSize == 0.5 else 2 if voxelSize == 1 else 0
+
+			# Fully divide magic lines
+			if pos3d.y > -2:
+				var noiseMagic: float = dataGen.worldNoise.get_noise_3dv(pos3d * 2)
+				if abs(noiseMagic) < 0.05:
+					maxAirVoxels = 0
+			# Fully divide grass
+			var pos2d3: Vector2 = Vector2(pos3d.x, pos3d.z)
+			var data2d3: Dictionary = dataGen.get_data_2d(pos2d3)
+			if pos3d.y < (data2d3.roomFloor - 4) * 4 - 2:
+				var noiseOffset: float = dataGen.worldNoise.get_noise_2dv(pos2d3 * 20) * 0.02
+				if data2d3.humidity > 0.5 + noiseOffset:
+					maxAirVoxels = 0
+			
 			for x in [pos3d.x - hVoxelSize, pos3d.x + hVoxelSize]:
 				for z in [pos3d.z - hVoxelSize, pos3d.z + hVoxelSize]:
 					var data2d: Dictionary = dataGen.get_data_2d(Vector2(x, z))
@@ -388,9 +426,11 @@ func getChunksToProgress(camera: Node3D, cameraPos: Vector3, cameraChunkPos: Vec
 	# Reverse the array so the highest priority is last
 	chunkToProgress.reverse()
 
+var frameNumber: int = 0
 func _process(_delta: float) -> void:
 	# Get time to calculate ms budget
 	var startTime: float = Time.get_ticks_msec()
+	frameNumber += 1
 
 	# Find chunks near the camera that need to be created
 	var camera: Node3D = get_parent().get_node("Camera3D")
@@ -444,14 +484,15 @@ func _process(_delta: float) -> void:
 					totalVoxels += mesh.instance_count
 
 	# Print stats
-	var message: Array[String] = []
-	message.append("FPS: " + str(Engine.get_frames_per_second()) + ' ' + str(Time.get_ticks_msec() / 1000.0))
-	message.append("Total voxels: " + str(totalVoxels))
-	# message.append("Total meshes: " + str(totalMeshes))
-	# message.append("Total chunks: " + str(chunks.size()))
-	message.append("Subdivision rate: " + str(avgSubdivisionRate))
-	# 2d Data
-	var data2d: Dictionary = dataGenerator.get_data_2d(Vector2(cameraPos.x, cameraPos.z))
-	for key in data2d:
-		message.append(key + ": " + str(data2d[key]))
-	print('\n'.join(message))
+	if frameNumber % 20 == 0:
+		var message: Array[String] = []
+		message.append("FPS: " + str(Engine.get_frames_per_second()) + ' ' + str(Time.get_ticks_msec() / 1000.0))
+		message.append("Total voxels: " + str(totalVoxels))
+		# message.append("Total meshes: " + str(totalMeshes))
+		# message.append("Total chunks: " + str(chunks.size()))
+		message.append("Subdivision rate: " + str(avgSubdivisionRate))
+		# 2d Data
+		var data2d: Dictionary = dataGenerator.get_data_2d(Vector2(cameraPos.x, cameraPos.z))
+		for key in data2d:
+			message.append(key + ": " + str(data2d[key]))
+		print('\n'.join(message))
