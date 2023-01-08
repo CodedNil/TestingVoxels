@@ -1,12 +1,12 @@
 extends StaticBody3D
 
-const chunkSize: float = 16.0
+const chunkSize: float = 8.0
 const largestVoxelSize: float = 4.0
 const smallestVoxelSize: float = 0.25
 
 const roomSpacing: float = 80
 
-const renderDistance: int = 24
+const renderDistance: int = 48
 
 const msBudget: float = 30  # Max time to spend on subdivision per update frame
 
@@ -334,7 +334,7 @@ class Chunk:
 		var newProgress: Array = []
 		for subdivision in progressSubdivisions:
 			# Try to maintain a good framerate
-			if Time.get_ticks_msec() - startTime > msBudget:
+			if startTime != 0 and Time.get_ticks_msec() - startTime > msBudget:
 				newProgress.append(subdivision)
 			else:
 				subdivideVoxel(subdivision[0], subdivision[1])
@@ -359,43 +359,44 @@ func sortAscending(a: Array, b: Array) -> bool:
 		return true
 	return false
 
-func getChunksToProgress(camera: Node3D, cameraPos: Vector3, cameraChunkPos: Vector3) -> void:
+func getChunksToProgress(cameraPos: Vector3, cameraDir: Vector3) -> void:
 	chunkToProgress = []
 
-	# Loop through chunks in a spiral pattern
-	var hRD: float = float(renderDistance) / 2
-	var x: float = 0
-	var z: float = 0
-	var dx: float = 0
-	var dz: float = -1
-	for i in range(renderDistance**2):
-		if (-hRD <= x and x <= hRD) and (-hRD <= z and z <= hRD):
-			# Get chunk position
-			for y in [0, 1, -1]:
-				# Get chunks distance for quality level
-				var chunkDistance: float = Vector3(x, y, z).length()
-				# Ignore chunks in a radius outside the render distance
-				if chunkDistance > float(renderDistance) / 2:
+	# Loop through chunks in rotated lines from center
+	var chunksViewed: Array[Vector3] = []
+	var rotateAngles: float = 128
+	for angle in range(rotateAngles):
+		var dir: Vector3 = cameraDir.rotated(Vector3(0, 1, 0), angle * 2 * PI / rotateAngles).normalized()
+		# var dir: Vector3 = Vector3(0.5, 0, -0.5)
+		for i in range(renderDistance):
+			var pos: Vector3 = cameraPos + dir * i * chunkSize
+			# Get if entire y range is empty space, skip if is
+			var emptyY: int = 0
+			for y in [0, 1, -1, 2]:
+				# Get the rounded snapped chunk position
+				var renderChunkPos: Vector3 = Vector3(int(pos.x / chunkSize), y, int(pos.z / chunkSize)) * chunkSize
+				# If the chunk is already in the list, skip it
+				if chunksViewed.find(renderChunkPos) != -1:
 					continue
-
-				var renderChunkPos: Vector3 = Vector3(cameraChunkPos.x + x * chunkSize, y * chunkSize, cameraChunkPos.z + z * chunkSize)
-
+				chunksViewed.append(renderChunkPos)
+				
+				# Get the distance from the camera
+				var chunkDistance: float = Vector2(renderChunkPos.x, renderChunkPos.z).distance_to(Vector2(cameraPos.x, cameraPos.z)) / chunkSize
+				# Find if chunk exists
 				var chunk: Chunk = chunks.get(renderChunkPos)
 				if chunk == null:
 					chunk = Chunk.new(renderChunkPos, dataGenerator)
 					add_child(chunk)
 					chunk.initMeshes()
 					chunks[renderChunkPos] = chunk
+					chunk.progress(0.0)
 				else:
 					# Get the chunks minimum voxel size, based on how close it is to the camera, halved from max each time
-					var subdivisionLevel: int = clamp(
-						round(nQualityLevels - chunkDistance + 1), 0, nQualityLevels
-					)
+					var subdivisionLevel: int = clamp(round(nQualityLevels - chunkDistance * 0.5 + 2), 0, nQualityLevels)
 					var newVoxelSize: float = largestVoxelSize / pow(2, subdivisionLevel)
 
 					if chunk.progressSubdivisions.size() != 0:
 						# Calculate progress priority, based on distance from camera and if it is in front of the camera
-						var cameraDir: Vector3 = camera.global_transform.basis.z
 						var chunkDir: Vector3 = (renderChunkPos - cameraPos).normalized()
 						var dot: float = cameraDir.dot(chunkDir)
 						var priority: float = chunkDistance + dot * 2 - chunk.chunksVoxelSize
@@ -403,13 +404,15 @@ func getChunksToProgress(camera: Node3D, cameraPos: Vector3, cameraChunkPos: Vec
 					# Release subdivisions if the voxel size is too big
 					if (chunk.chunksVoxelSize != newVoxelSize and chunk.heldSubdivisons.size() != 0 and chunk.progressSubdivisions.size() == 0):
 						chunk.releaseSubdivisions(chunk.chunksVoxelSize / 2)
-		# Rotate the spiral
-		if (x == z) or (x < 0 and x == -z) or (x > 0 and x == 1 - z):
-			var t: float = dx
-			dx = -dz
-			dz = t
-		x += dx
-		z += dz
+				
+				# Get first mesh instance count to see if it is empty
+				var firstMeshCount = 0
+				for material in chunk.multiMeshes[largestVoxelSize]:
+					firstMeshCount += chunk.multiMeshes[largestVoxelSize][material][1].size()
+				if firstMeshCount == 8:
+					emptyY += 1
+			if emptyY == 4:
+				break
 
 	# Sort chunks by priority
 	chunkToProgress.sort_custom(sortAscending)
@@ -428,12 +431,10 @@ func _process(_delta: float) -> void:
 	# Find chunks near the camera that need to be created
 	var camera: Node3D = get_parent().get_node("Camera3D")
 	var cameraPos: Vector3 = camera.global_transform.origin
-
-	var cameraChunkPos: Vector3 = Vector3(
-		floor(cameraPos.x / chunkSize) * chunkSize,
-		floor(cameraPos.y / chunkSize) * chunkSize,
-		floor(cameraPos.z / chunkSize) * chunkSize
-	)
+	var cameraDir: Vector3 = camera.global_transform.basis.z
+	# Temporary fake camera pos
+	cameraPos = Vector3(0, 0, 0)
+	cameraDir = Vector3(0, 0, 1)
 
 	var subdivisionRate: int = 0
 
@@ -447,11 +448,11 @@ func _process(_delta: float) -> void:
 				break
 			if chunkToProgress.size() == 0:
 				# Get new chunks to progress
-				getChunksToProgress(camera, cameraPos, cameraChunkPos)
+				getChunksToProgress(cameraPos, cameraDir)
 				break
 	else:
 		# Get new chunks to progress
-		getChunksToProgress(camera, cameraPos, cameraChunkPos)
+		getChunksToProgress(cameraPos, cameraDir)
 	
 	# Add subdivision rate to array
 	subdivisionRates.append(subdivisionRate)
