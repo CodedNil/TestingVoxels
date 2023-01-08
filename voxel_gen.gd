@@ -18,17 +18,27 @@ const nQualityLevels: int = int(log(largestVoxelSize / smallestVoxelSize) / log(
 # Create noise generator class that can be initialised then have functions within
 class DataGenerator:
 	var worldNoise: FastNoiseLite = FastNoiseLite.new()
+
 	func _init() -> void:
 		worldNoise.frequency = 0.03
 		worldNoise.seed = 1234
-	
+
 	# Get a noise value clamped from 0 to 1, but the noise is scaled up to clamp extreme values
 	func getWorldsNoise(offset: float, pos2d: Vector2, scale: float) -> float:
-		return clamp((1 + worldNoise.get_noise_3d(offset * 1000, pos2d.x * scale, pos2d.y * scale) * 1.4) * 0.5, 0, 1)
+		return clamp(
+			(
+				(1 + worldNoise.get_noise_3d(offset * 1000, pos2d.x * scale, pos2d.y * scale) * 1.4)
+				* 0.5
+			),
+			0,
+			1
+		)
 
 	# Get data for a point in the world
 	var cachedData2d: Dictionary = {}
 	var cachedData3d: Dictionary = {}
+	var cachedData2dColor: Dictionary = {}
+
 	func get_data_2d(pos2d: Vector2) -> Dictionary:
 		# Check if data is cached
 		if pos2d in cachedData2d:
@@ -57,8 +67,7 @@ class DataGenerator:
 		# Get data for the room
 		# Get 2d room center position, pos2d snapped to nearest room spacing point
 		var roomPosition: Vector2 = Vector2(
-			round(pos2d.x / roomSpacing) * roomSpacing,
-			round(pos2d.y / roomSpacing) * roomSpacing
+			round(pos2d.x / roomSpacing) * roomSpacing, round(pos2d.y / roomSpacing) * roomSpacing
 		)
 		# Get room noise seed, based on room position
 		var roomSeed: float = roomPosition.x + roomPosition.y * 123
@@ -69,10 +78,23 @@ class DataGenerator:
 		var roomDist: float = pos2d.distance_to(roomPosition)
 
 		# Calculate room size, based on noise from the angle
-		var roomBaseSize: float = lerp(20, 25, smoothness) + worldNoise.get_noise_1d(roomSeed) * lerp(15, 2, smoothness)
+		var roomBaseSize: float = (
+			lerp(20, 25, smoothness) + worldNoise.get_noise_1d(roomSeed) * lerp(15, 2, smoothness)
+		)
 		var roomSizeNoise = 5 + (1 - smoothness) * 30
-		var roomSize0: float = roomBaseSize + worldNoise.get_noise_2d(roomSeed, -PI * roomSizeNoise) * roomBaseSize / 3 * smoothness
-		var roomSize: float = roomBaseSize + worldNoise.get_noise_2d(roomSeed, roomAngle * roomSizeNoise) * roomBaseSize / 3 * smoothness
+		var roomSize0: float = (
+			roomBaseSize
+			+ worldNoise.get_noise_2d(roomSeed, -PI * roomSizeNoise) * roomBaseSize / 3 * smoothness
+		)
+		var roomSize: float = (
+			roomBaseSize
+			+ (
+				worldNoise.get_noise_2d(roomSeed, roomAngle * roomSizeNoise)
+				* roomBaseSize
+				/ 3
+				* smoothness
+			)
+		)
 		# For the last 25% of the angle, so from half pi to pi, lerp towards roomSize0
 		var roomSizeLerp: float = (
 			lerp(roomSize, roomSize0, (roomAngle - PI / 2) / (PI / 2))
@@ -88,8 +110,14 @@ class DataGenerator:
 		)
 
 		# Get room height data
-		var roomFloor: float = 4 + worldNoise.get_noise_2dv(pos2d * lerp(4, 1, smoothness)) * lerp(2.0, 0.5, smoothness)
-		var roomCeiling: float = 2 + worldNoise.get_noise_2dv(pos2d * lerp(20, 3, smoothness)) * lerp(2.0, 0.5, smoothness)
+		var roomFloor: float = (
+			4
+			+ worldNoise.get_noise_2dv(pos2d * lerp(4, 1, smoothness)) * lerp(2.0, 0.5, smoothness)
+		)
+		var roomCeiling: float = (
+			2
+			+ worldNoise.get_noise_2dv(pos2d * lerp(20, 3, smoothness)) * lerp(2.0, 0.5, smoothness)
+		)
 
 		var data2d: Dictionary = {
 			"elevation": elevation,
@@ -116,24 +144,43 @@ class DataGenerator:
 
 		var roomHeightSmooth: float = data2d.roomFloor if pos3d.y < 0 else data2d.roomCeiling
 
-		var roomDist3d: float = Vector3(pos3d.x - data2d.roomPosition.x, pos3d.y * roomHeightSmooth, pos3d.z - data2d.roomPosition.y).length()
+		var roomDist3d: float = (
+			Vector3(
+				pos3d.x - data2d.roomPosition.x,
+				pos3d.y * roomHeightSmooth,
+				pos3d.z - data2d.roomPosition.y
+			)
+			. length()
+		)
 		var roomInside3d: bool = roomDist3d < data2d.roomSize
 
-		var corridorDist3d: float = Vector2(data2d.corridorDist, pos3d.y * roomHeightSmooth / 2.0).length()
+		var corridorDist3d: float = (
+			Vector2(data2d.corridorDist, pos3d.y * roomHeightSmooth / 2.0) . length()
+		)
 		var corridorInside3d: bool = corridorDist3d < data2d.corridorWidth
 
 		var inside3d: bool = roomInside3d or corridorInside3d
 		cachedData3d[pos3d] = inside3d
 		return inside3d
-	
-	func get_data_color(pos2d: Vector2, pos3d: Vector3, data2d: Dictionary, size: float) -> Dictionary:
+
+	func get_data_color(
+		pos2d: Vector2, pos3d: Vector3, data2d: Dictionary, size: float
+	) -> Dictionary:
+		# Check if data is cached
+		var cachedData: Dictionary
+		if pos2d in cachedData2dColor:
+			cachedData = cachedData2dColor[pos2d]
+
 		# Color from dark to light gray as elevation increases
 		var shade: float = pos3d.y / 30
 		var color: Color = Color(0.5 + shade, 0.4 + shade, 0.3 + shade)
-		var material: String = 'standard'
-		
+		var material: String = "standard"
+
 		# Give the color horizontal lines from noise to make it look more natural
-		var noiseShade: float = (0.5 + worldNoise.get_noise_1d(pos3d.y * 20 + pos3d.x * 0.01 + pos3d.z + 0.01) / 2) * 0.2
+		var noiseShade: float = (
+			(0.5 + worldNoise.get_noise_1d(pos3d.y * 20 + pos3d.x * 0.01 + pos3d.z + 0.01) / 2)
+			* 0.2
+		)
 		color += Color(noiseShade, noiseShade, noiseShade)
 		# Add brown colors based on 2d noise
 		var noiseColor: float = 0.5 + worldNoise.get_noise_2dv(pos2d * 0.1) / 2
@@ -144,7 +191,7 @@ class DataGenerator:
 			var noiseMagic: float = worldNoise.get_noise_3dv(pos3d * 2)
 			if abs(noiseMagic) < 0.05:
 				color = color * 0.1 + Color(0, 0, 1 - abs(noiseMagic) * 10)
-				material = 'emissive'
+				material = "emissive"
 
 		# Add color on floors
 		if pos3d.y < (data2d.roomFloor - 4) * 4 - 2:
@@ -152,13 +199,20 @@ class DataGenerator:
 			var noiseOffset: float = worldNoise.get_noise_2dv(pos2d * 20) * 0.02
 
 			# Use sand color if temperature is high and humidity low
-			if data2d.temperature > 0.7 + noiseOffset and data2d.humidity < 0.3 + noiseOffset and material == 'standard':
+			if (
+				data2d.temperature > 0.7 + noiseOffset
+				and data2d.humidity < 0.3 + noiseOffset
+				and material == "standard"
+			):
 				var colorVariance: float = worldNoise.get_noise_2dv(pos2d * 2) * 0.15
 				color = Color(1 + colorVariance, 0.9 + colorVariance, 0.6 + colorVariance)
 			# Use grass color if humidity high
-			if data2d.humidity > 0.5 + noiseOffset and material == 'standard':
+			if data2d.humidity > 0.5 + noiseOffset and material == "standard":
 				var colorVariance: float = worldNoise.get_noise_2dv(pos2d * 2) * 0.15
-				color = lerp(Color(0.3, 0.4, 0.1), Color(0.2, 0.4, 0.15), data2d.lushness) + Color(colorVariance, colorVariance, colorVariance)
+				color = (
+					lerp(Color(0.3, 0.4, 0.1), Color(0.2, 0.4, 0.15), data2d.lushness)
+					+ Color(colorVariance, colorVariance, colorVariance)
+				)
 
 		# Jitter the pos3d
 		# Add jiggle to x and z based on noise
@@ -175,10 +229,13 @@ class DataGenerator:
 			"posJittered": posJittered,
 		}
 
+
 var voxelMaterials: Dictionary = {}
 var boxMeshes: Dictionary = {}
 var boxShapes: Dictionary = {}
 var dataGenerator: DataGenerator = DataGenerator.new()
+
+
 func _ready() -> void:
 	# Create the box meshes for each voxel size
 	var cVoxelSize: float = chunkSize
@@ -191,8 +248,8 @@ func _ready() -> void:
 			boxShapes[cVoxelSize].extents = Vector3(cVoxelSize, cVoxelSize, cVoxelSize) / 2
 
 	# Define the materials
-	voxelMaterials['standard'] = preload("res://materials/voxel_standard.tres")
-	voxelMaterials['emissive'] = preload("res://materials/voxel_emissive.tres")
+	voxelMaterials["standard"] = preload("res://materials/voxel_standard.tres")
+	voxelMaterials["emissive"] = preload("res://materials/voxel_emissive.tres")
 
 
 # Chunk class
@@ -217,7 +274,7 @@ class Chunk:
 		# Create the first subdivision
 		subdivideVoxel(pos, chunkSize)
 		rerenderMultiMeshes()
-	
+
 	func rerenderMultiMeshes() -> void:
 		# Count number of voxels at each size, and set instance count, and create the meshes
 		for size in multiMeshes:
@@ -295,7 +352,7 @@ class Chunk:
 				var noiseOffset: float = dataGen.worldNoise.get_noise_2dv(pos2d3 * 20) * 0.02
 				if data2d3.humidity > 0.5 + noiseOffset:
 					maxAirVoxels = 3 if voxelSize == 0.5 else 1 if voxelSize == 1 else 0
-			
+
 			for x in [pos3d.x - hVoxelSize, pos3d.x + hVoxelSize]:
 				for z in [pos3d.z - hVoxelSize, pos3d.z + hVoxelSize]:
 					var data2d: Dictionary = dataGen.get_data_2d(Vector2(x, z))
@@ -350,6 +407,8 @@ var chunks: Dictionary = {}
 var subdivisionRates = []
 
 var frameNumber: int = 0
+
+
 func _process(_delta: float) -> void:
 	# Get time to calculate ms budget
 	var startTime: float = Time.get_ticks_msec()
@@ -371,7 +430,7 @@ func _process(_delta: float) -> void:
 	# Keep track of chunks to progress by voxel size, so we can progress in order of quality
 	var chunksToProgress: Dictionary = {}
 	for qLevel in range(nQualityLevels + 1):
-		var voxelSize: float = largestVoxelSize / (2 ** qLevel)
+		var voxelSize: float = largestVoxelSize / pow(2, qLevel)
 		chunksToProgress[voxelSize] = []
 	# Loop through chunks in rotated lines from center
 	for angle in range(rotateAngles / 2):
@@ -379,11 +438,15 @@ func _process(_delta: float) -> void:
 		var angleQuality: float = angle / rotateAngles * 2
 		# Start rotation from 0, then -angle, then angle, then -angle * 2, then angle * 2, etc
 		var flip: int = 1 if angle % 2 == 0 else -1
-		var dir: Vector3 = cameraDir.rotated(Vector3(0, 1, 0), deg_to_rad(180 + angle * flip * 360 / rotateAngles))
+		var dir: Vector3 = cameraDir.rotated(
+			Vector3(0, 1, 0), deg_to_rad(180 + angle * flip * 360 / rotateAngles)
+		)
 		for i in range(renderDistance):
 			var pos: Vector3 = cameraPos + dir * i * chunkSize
 
-			var renderChunkPos2d: Vector2 = Vector2(int(pos.x / chunkSize), int(pos.z / chunkSize)) * chunkSize
+			var renderChunkPos2d: Vector2 = (
+				Vector2(int(pos.x / chunkSize), int(pos.z / chunkSize)) * chunkSize
+			)
 			# If the chunk is already in the list, skip it
 			if renderChunkPos2d in chunksViewed:
 				continue
@@ -393,7 +456,9 @@ func _process(_delta: float) -> void:
 			var emptyY: int = 0
 			for y in yLevels:
 				# Get the rounded snapped chunk position
-				var renderChunkPos: Vector3 = Vector3(int(pos.x / chunkSize), y, int(pos.z / chunkSize)) * chunkSize
+				var renderChunkPos: Vector3 = (
+					Vector3(int(pos.x / chunkSize), y, int(pos.z / chunkSize)) * chunkSize
+				)
 
 				# Find if chunk exists
 				var chunk: Chunk = chunks.get(renderChunkPos)
@@ -405,17 +470,32 @@ func _process(_delta: float) -> void:
 				else:
 					if chunk.progressSubdivisions.size() != 0:
 						chunksToProgress[chunk.chunksVoxelSize].append(chunk)
-					elif chunk.heldSubdivisons.size() != 0 and chunk.progressSubdivisions.size() == 0:
+					elif (
+						chunk.heldSubdivisons.size() != 0
+						and chunk.progressSubdivisions.size() == 0
+					):
 						# Get the distance from the camera
-						var chunkDistance: float = Vector2(renderChunkPos.x, renderChunkPos.z).distance_to(Vector2(cameraPos.x, cameraPos.z)) / chunkSize
+						var chunkDistance: float = (
+							(
+								Vector2(renderChunkPos.x, renderChunkPos.z)
+								. distance_to(Vector2(cameraPos.x, cameraPos.z))
+							)
+							/ chunkSize
+						)
 						# Get the chunks minimum voxel size, based on how close it is to the camera, halved from max each time
-						var subdivisionLevel: int = clamp(round(nQualityLevels - chunkDistance * lerp(0.25, 0.8, angleQuality) + 1.0), 0, nQualityLevels)
+						var subdivisionLevel: int = clamp(
+							round(
+								nQualityLevels - chunkDistance * lerp(0.25, 0.8, angleQuality) + 1.0
+							),
+							0,
+							nQualityLevels
+						)
 						var newVoxelSize: float = largestVoxelSize / pow(2, subdivisionLevel)
-	
+
 						# Release subdivisions if the voxel size is too big
 						if chunk.chunksVoxelSize > newVoxelSize:
 							chunk.releaseSubdivisions(chunk.chunksVoxelSize / 2)
-				
+
 				# Get first mesh instance count to see if it is empty
 				var firstMeshCount = 0
 				if largestVoxelSize in chunk.multiMeshes:
@@ -462,11 +542,27 @@ func _process(_delta: float) -> void:
 	# Print stats
 	if frameNumber % 20 == 0:
 		var message: Array[String] = []
-		message.append("FPS: " + str(Engine.get_frames_per_second()) + ' ' + str(Time.get_ticks_msec() / 1000.0))
-		message.append("Voxels: " + str(totalVoxels) + ' Meshes: ' + str(totalMeshes) + ' Chunks: ' + str(chunks.size()))
+		message.append(
+			(
+				"FPS: "
+				+ str(Engine.get_frames_per_second())
+				+ " "
+				+ str(Time.get_ticks_msec() / 1000.0)
+			)
+		)
+		message.append(
+			(
+				"Voxels: "
+				+ str(totalVoxels)
+				+ " Meshes: "
+				+ str(totalMeshes)
+				+ " Chunks: "
+				+ str(chunks.size())
+			)
+		)
 		message.append("Subdivision rate: " + str(avgSubdivisionRate))
 		# 2d Data
 		var data2d: Dictionary = dataGenerator.get_data_2d(Vector2(cameraPos.x, cameraPos.z))
 		for key in data2d:
 			message.append(key + ": " + str(data2d[key]))
-		print('\n'.join(message))
+		print("\n".join(message))
