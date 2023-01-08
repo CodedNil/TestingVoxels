@@ -1,7 +1,7 @@
 [gd_scene load_steps=5 format=3 uid="uid://bddb6165oue81"]
 
 [ext_resource type="Script" path="res://character/character.gd" id="1_0ligw"]
-[ext_resource type="ArrayMesh" uid="uid://drdcvt3xi0fpm" path="res://character.obj" id="2_4fct8"]
+[ext_resource type="ArrayMesh" uid="uid://drdcvt3xi0fpm" path="res://character/character.obj" id="2_4fct8"]
 
 [sub_resource type="StandardMaterial3D" id="StandardMaterial3D_35op3"]
 

@@ -6,9 +6,10 @@ const smallestVoxelSize: float = 0.25
 
 const roomSpacing: float = 110
 
-const renderDistance: int = 48
+const renderDistance: int = 32
+const yLevels: Array[int] = [0, 1, -1, 2]
 
-const msBudget: float = 32  # Max time to spend on subdivision per update frame
+const msBudget: float = 12  # Max time to spend on subdivision per update frame
 
 # Get number of quality levels, based on the largest and smallest voxel size
 const nQualityLevels: int = int(log(largestVoxelSize / smallestVoxelSize) / log(2))
@@ -203,6 +204,8 @@ class Chunk:
 	var multiMeshes: Dictionary = {}  # Store the cubes at each division level
 	var chunksVoxelSize: float = largestVoxelSize  # Chunks current subdivision level
 
+	var voxelsCount: int = 0  # Number of voxels in the chunk
+
 	# Hold back subdivisions until you get closer, or to prevent lag
 	var progressSubdivisions: Array = []
 	var heldSubdivisons: Array = []
@@ -211,39 +214,10 @@ class Chunk:
 	func _init(initPos: Vector3, dataG: DataGenerator) -> void:
 		pos = initPos
 		dataGen = dataG
-	
-	# Create the meshes for the chunk
-	func initMeshes() -> void:
-		# Create multi meshes for each subdivision level
-		var cVoxelSize: float = chunkSize
-		while cVoxelSize > smallestVoxelSize:
-			cVoxelSize /= 2
-			if cVoxelSize <= largestVoxelSize:
-				# Create the multi mesh instances per material
-				var meshes = {}
-				var materials = get_parent().voxelMaterials
-				for material in materials:
-					var multiMesh: MultiMesh = MultiMesh.new()
-					multiMesh.transform_format = MultiMesh.TRANSFORM_3D
-					multiMesh.use_colors = true
-					multiMesh.use_custom_data = false
-					multiMesh.instance_count = 0
-					multiMesh.mesh = get_parent().boxMeshes[cVoxelSize]
-					var meshInstance: MultiMeshInstance3D = MultiMeshInstance3D.new()
-					meshInstance.multimesh = multiMesh
-					# Add material
-					meshInstance.material_override = materials[material]
-					# Add to scene
-					add_child(meshInstance)
-					# Add to array
-					meshes[material] = [multiMesh, []]
-				# Add all arrays to the multiMeshes array
-				multiMeshes[cVoxelSize] = meshes
-
 		# Create the first subdivision
 		subdivideVoxel(pos, chunkSize)
 		rerenderMultiMeshes()
-
+	
 	func rerenderMultiMeshes() -> void:
 		# Count number of voxels at each size, and set instance count, and create the meshes
 		for size in multiMeshes:
@@ -258,6 +232,26 @@ class Chunk:
 
 	func renderVoxel(pos2d: Vector2, pos3d: Vector3, data2d: Dictionary, size: float) -> void:
 		var dataColor: Dictionary = dataGen.get_data_color(pos2d, pos3d, data2d, size)
+
+		# Create multimesh if needed
+		if not size in multiMeshes:
+			multiMeshes[size] = {}
+		if not dataColor.material in multiMeshes[size]:
+			var multiMesh: MultiMesh = MultiMesh.new()
+			multiMesh.transform_format = MultiMesh.TRANSFORM_3D
+			multiMesh.use_colors = true
+			multiMesh.use_custom_data = false
+			multiMesh.instance_count = 0
+			multiMesh.mesh = get_parent().boxMeshes[size]
+			var meshInstance: MultiMeshInstance3D = MultiMeshInstance3D.new()
+			meshInstance.multimesh = multiMesh
+			# Add material
+			meshInstance.material_override = get_parent().voxelMaterials[dataColor.material]
+			# Add to scene
+			add_child(meshInstance)
+			# Add to array
+			multiMeshes[size][dataColor.material] = [multiMesh, []]
+
 		# Add mesh to multi mesh
 		multiMeshes[size][dataColor.material][1].append([dataColor.posJittered, dataColor.color])
 
@@ -267,6 +261,8 @@ class Chunk:
 		shape.shape = get_parent().boxShapes[size]
 		shape.global_transform = Transform3D(Basis(), dataColor.posJittered)
 		get_parent().add_child(shape)
+
+		voxelsCount += 1
 
 	# Subdivide a voxel into 8 smaller voxels, potentially subdivide those further
 	func subdivideVoxel(pos3d: Vector3, voxelSize: float) -> void:
@@ -353,11 +349,6 @@ class Chunk:
 var chunks: Dictionary = {}
 var subdivisionRates = []
 
-func sortAscending(a: Array, b: Array) -> bool:
-	if a[0] < b[0]:
-		return true
-	return false
-
 var frameNumber: int = 0
 func _process(_delta: float) -> void:
 	# Get time to calculate ms budget
@@ -365,7 +356,7 @@ func _process(_delta: float) -> void:
 	frameNumber += 1
 
 	# Find chunks near the camera that need to be created
-	var camera: Node3D = get_parent().get_node("character")
+	var camera: Node3D = get_parent().get_node("CharacterBody3D")
 	var cameraPos: Vector3 = camera.global_transform.origin
 	var cameraDir: Vector3 = camera.global_transform.basis.z
 	# Temporary fake camera pos
@@ -394,50 +385,52 @@ func _process(_delta: float) -> void:
 
 			var renderChunkPos2d: Vector2 = Vector2(int(pos.x / chunkSize), int(pos.z / chunkSize)) * chunkSize
 			# If the chunk is already in the list, skip it
-			if chunksViewed.find(renderChunkPos2d) != -1:
+			if renderChunkPos2d in chunksViewed:
 				continue
 			chunksViewed.append(renderChunkPos2d)
 
 			# Get if entire y range is empty space, skip if is
 			var emptyY: int = 0
-			for y in [0, 1, -1, 2]:
+			for y in yLevels:
 				# Get the rounded snapped chunk position
 				var renderChunkPos: Vector3 = Vector3(int(pos.x / chunkSize), y, int(pos.z / chunkSize)) * chunkSize
-				
-				# Get the distance from the camera
-				var chunkDistance: float = Vector2(renderChunkPos.x, renderChunkPos.z).distance_to(Vector2(cameraPos.x, cameraPos.z)) / chunkSize
+
 				# Find if chunk exists
 				var chunk: Chunk = chunks.get(renderChunkPos)
 				if chunk == null:
 					chunk = Chunk.new(renderChunkPos, dataGenerator)
 					add_child(chunk)
-					chunk.initMeshes()
 					chunks[renderChunkPos] = chunk
 					subdivisionRate += chunk.progress(startTime)
 				else:
-					# Get the chunks minimum voxel size, based on how close it is to the camera, halved from max each time
-					var subdivisionLevel: int = clamp(round(nQualityLevels - chunkDistance * lerp(0.5, 1.0, angleQuality) + 1.0), 0, nQualityLevels)
-					var newVoxelSize: float = largestVoxelSize / pow(2, subdivisionLevel)
-
 					if chunk.progressSubdivisions.size() != 0:
 						chunksToProgress[chunk.chunksVoxelSize].append(chunk)
-					else:
+					elif chunk.heldSubdivisons.size() != 0 and chunk.progressSubdivisions.size() == 0:
+						# Get the distance from the camera
+						var chunkDistance: float = Vector2(renderChunkPos.x, renderChunkPos.z).distance_to(Vector2(cameraPos.x, cameraPos.z)) / chunkSize
+						# Get the chunks minimum voxel size, based on how close it is to the camera, halved from max each time
+						var subdivisionLevel: int = clamp(round(nQualityLevels - chunkDistance * lerp(0.25, 0.8, angleQuality) + 1.0), 0, nQualityLevels)
+						var newVoxelSize: float = largestVoxelSize / pow(2, subdivisionLevel)
+	
 						# Release subdivisions if the voxel size is too big
-						if chunk.chunksVoxelSize != newVoxelSize and chunk.heldSubdivisons.size() != 0 and chunk.progressSubdivisions.size() == 0:
+						if chunk.chunksVoxelSize > newVoxelSize:
 							chunk.releaseSubdivisions(chunk.chunksVoxelSize / 2)
 				
 				# Get first mesh instance count to see if it is empty
 				var firstMeshCount = 0
-				for material in chunk.multiMeshes[largestVoxelSize]:
-					firstMeshCount += chunk.multiMeshes[largestVoxelSize][material][1].size()
+				if largestVoxelSize in chunk.multiMeshes:
+					for material in chunk.multiMeshes[largestVoxelSize]:
+						firstMeshCount += chunk.multiMeshes[largestVoxelSize][material][1].size()
 				if firstMeshCount == 8:
 					emptyY += 1
-			if emptyY == 4:
+			if emptyY == len(yLevels):
 				break
 			if Time.get_ticks_msec() - startTime > msBudget:
 				break
 		if Time.get_ticks_msec() - startTime > msBudget:
 			break
+
+	# Progress on chunks
 	for voxelSize in chunksToProgress:
 		for chunk in chunksToProgress[voxelSize]:
 			subdivisionRate += chunk.progress(startTime)
@@ -445,7 +438,7 @@ func _process(_delta: float) -> void:
 				break
 		if Time.get_ticks_msec() - startTime > msBudget:
 			break
-	
+
 	# Add subdivision rate to array
 	subdivisionRates.append(subdivisionRate)
 	# Average subdivision rate over the last 20 frames
@@ -463,11 +456,8 @@ func _process(_delta: float) -> void:
 			chunks[chunkPos].queue_free()
 			chunks.erase(chunkPos)
 		else:
-			for size in chunks[chunkPos].multiMeshes:
-				for material in chunks[chunkPos].multiMeshes[size]:
-					var mesh = chunks[chunkPos].multiMeshes[size][material][0]
-					totalMeshes += 1
-					totalVoxels += mesh.instance_count
+			totalVoxels += chunks[chunkPos].voxelsCount
+			totalMeshes += chunks[chunkPos].multiMeshes.size() * voxelMaterials.size()
 
 	# Print stats
 	if frameNumber % 20 == 0:

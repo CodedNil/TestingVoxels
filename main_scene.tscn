@@ -40,14 +40,13 @@ script = ExtResource("4_1a6st")
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1.16751, 1.23016)
 shape = SubResource("BoxShape3D_1tb5w")
 
-[node name="OmniLight3D" type="OmniLight3D" parent="."]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -2.4482, -1)
-shadow_enabled = true
-omni_range = 25.0
-
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = SubResource("Environment_0p6un")
 camera_attributes = SubResource("CameraAttributesPractical_eb5yk")
 
-[node name="character" parent="." instance=ExtResource("4_dqolu")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.57943, 1.22778)
+[node name="CharacterBody3D" parent="." instance=ExtResource("4_dqolu")]
+
+[node name="OmniLight3D" type="OmniLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -2.4482, -1)
+shadow_enabled = true
+omni_range = 25.0
