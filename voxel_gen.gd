@@ -281,20 +281,20 @@ class Chunk:
 			# Calculate how much of the voxel is air
 			var nAirVoxels: int = 0
 			# Smaller voxels have higher threshold for air, so less small voxels made
-			var maxAirVoxels: int = 4 if voxelSize == 0.5 else 2 if voxelSize == 1 else 0
+			var maxAirVoxels: int = 3 if voxelSize == 0.5 else 1 if voxelSize == 1 else 0
 
 			# Fully divide magic lines
 			if pos3d.y > -2:
 				var noiseMagic: float = dataGen.worldNoise.get_noise_3dv(pos3d * 2)
 				if abs(noiseMagic) < 0.05:
-					maxAirVoxels = 0
+					maxAirVoxels = 3 if voxelSize == 0.5 else 1 if voxelSize == 1 else 0
 			# Fully divide grass
 			var pos2d3: Vector2 = Vector2(pos3d.x, pos3d.z)
 			var data2d3: Dictionary = dataGen.get_data_2d(pos2d3)
 			if pos3d.y < (data2d3.roomFloor - 4) * 4 - 2:
 				var noiseOffset: float = dataGen.worldNoise.get_noise_2dv(pos2d3 * 20) * 0.02
 				if data2d3.humidity > 0.5 + noiseOffset:
-					maxAirVoxels = 0
+					maxAirVoxels = 3 if voxelSize == 0.5 else 1 if voxelSize == 1 else 0
 			
 			for x in [pos3d.x - hVoxelSize, pos3d.x + hVoxelSize]:
 				for z in [pos3d.z - hVoxelSize, pos3d.z + hVoxelSize]:
