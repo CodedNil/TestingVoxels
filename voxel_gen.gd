@@ -9,7 +9,7 @@ const roomSpacing: float = 110
 const renderDistance: int = 32
 const yLevels: Array[int] = [0, 1, -1, 2]
 
-const msBudget: float = 12  # Max time to spend on subdivision per update frame
+const msBudget: float = 32  # Max time to spend on subdivision per update frame
 
 # Get number of quality levels, based on the largest and smallest voxel size
 const nQualityLevels: int = int(log(largestVoxelSize / smallestVoxelSize) / log(2))
@@ -50,9 +50,9 @@ class DataGenerator:
 		# Smoothness scale, between 0 and 1, 0 is flat, 1 is smooth
 		var smoothness: float = getWorldsNoise(0, pos2d, 0.1)
 		# Temperature scale, between 0 cold and 1 hot
-		var temperature: float = getWorldsNoise(1, pos2d, 0.1)
+		var temperature: float = getWorldsNoise(1, pos2d, 0.025)
 		# Humidity scale, between 0 dry and 1 wet
-		var humidity: float = getWorldsNoise(2, pos2d, 0.1)
+		var humidity: float = getWorldsNoise(2, pos2d, 0.025)
 		# Lushness scale, between 0 barren and 1 lush
 		var lushness: float = getWorldsNoise(3, pos2d, 0.1)
 		# Development scale, between 0 undeveloped and 1 developed
@@ -167,7 +167,7 @@ class DataGenerator:
 		pos2d: Vector2, pos3d: Vector3, data2d: Dictionary, size: float
 	) -> Dictionary:
 		# Check if data is cached
-		var cachedData: Dictionary
+		var cachedData: Dictionary = {}
 		if pos2d in cachedData2dColor:
 			cachedData = cachedData2dColor[pos2d]
 
@@ -183,7 +183,12 @@ class DataGenerator:
 		)
 		color += Color(noiseShade, noiseShade, noiseShade)
 		# Add brown colors based on 2d noise
-		var noiseColor: float = 0.5 + worldNoise.get_noise_2dv(pos2d * 0.1) / 2
+		var noiseColor: float
+		if "noiseColor" in cachedData:
+			noiseColor = cachedData["noiseColor"]
+		else:
+			noiseColor = 0.5 + worldNoise.get_noise_2dv(pos2d * 0.1) / 2
+			cachedData["noiseColor"] = noiseColor
 		color += Color(noiseColor, noiseColor * 0.5, 0) * 0.1
 
 		# Add blue magic lines based on 3d noise
@@ -194,25 +199,26 @@ class DataGenerator:
 				material = "emissive"
 
 		# Add color on floors
-		if pos3d.y < (data2d.roomFloor - 4) * 4 - 2:
-			# Slight offset on the noise to make it look more natural
-			var noiseOffset: float = worldNoise.get_noise_2dv(pos2d * 20) * 0.02
+		if pos3d.y < (data2d.roomFloor - 4) * 4 - 2 and material == "standard":
+			if "floorColor" in cachedData:
+				color = cachedData["floorColor"]
+			else:
+				# Slight offset on the noise to make it look more natural
+				var noiseOffset: float = worldNoise.get_noise_2dv(pos2d * 4) * 0.02
 
-			# Use sand color if temperature is high and humidity low
-			if (
-				data2d.temperature > 0.7 + noiseOffset
-				and data2d.humidity < 0.3 + noiseOffset
-				and material == "standard"
-			):
-				var colorVariance: float = worldNoise.get_noise_2dv(pos2d * 2) * 0.15
-				color = Color(1 + colorVariance, 0.9 + colorVariance, 0.6 + colorVariance)
-			# Use grass color if humidity high
-			if data2d.humidity > 0.5 + noiseOffset and material == "standard":
-				var colorVariance: float = worldNoise.get_noise_2dv(pos2d * 2) * 0.15
-				color = (
-					lerp(Color(0.3, 0.4, 0.1), Color(0.2, 0.4, 0.15), data2d.lushness)
-					+ Color(colorVariance, colorVariance, colorVariance)
-				)
+				# Use sand color if temperature is high and humidity low
+				if data2d.temperature > 0.7 + noiseOffset and data2d.humidity < 0.3 + noiseOffset:
+					var colorVariance: float = worldNoise.get_noise_2dv(pos2d * 2) * 0.15
+					color = Color(1 + colorVariance, 0.9 + colorVariance, 0.6 + colorVariance)
+					cachedData["floorColor"] = color
+				# Use grass color if humidity high
+				if data2d.humidity > 0.5 + noiseOffset:
+					var colorVariance: float = worldNoise.get_noise_2dv(pos2d * 2) * 0.15
+					color = (
+						lerp(Color(0.3, 0.4, 0.1), Color(0.2, 0.4, 0.15), data2d.lushness)
+						+ Color(colorVariance, colorVariance, colorVariance)
+					)
+					cachedData["floorColor"] = color
 
 		# Jitter the pos3d
 		# Add jiggle to x and z based on noise
@@ -222,6 +228,8 @@ class DataGenerator:
 			pos3d.y + data2d.elevation,
 			pos3d.z + (worldNoise.get_noise_2dv(Vector2(pos3d.x, pos3d.y)) * 0.5)
 		)
+
+		cachedData2dColor[pos2d] = cachedData
 
 		return {
 			"color": color,
@@ -338,7 +346,7 @@ class Chunk:
 			# Calculate how much of the voxel is air
 			var nAirVoxels: int = 0
 			# Smaller voxels have higher threshold for air, so less small voxels made
-			var maxAirVoxels: int = 3 if voxelSize == 0.5 else 1 if voxelSize == 1 else 0
+			var maxAirVoxels: int = 4 if voxelSize == 0.5 else 2 if voxelSize == 1 else 0
 
 			# Fully divide magic lines
 			if pos3d.y > -2:
@@ -349,7 +357,7 @@ class Chunk:
 			var pos2d3: Vector2 = Vector2(pos3d.x, pos3d.z)
 			var data2d3: Dictionary = dataGen.get_data_2d(pos2d3)
 			if pos3d.y < (data2d3.roomFloor - 4) * 4 - 2:
-				var noiseOffset: float = dataGen.worldNoise.get_noise_2dv(pos2d3 * 20) * 0.02
+				var noiseOffset: float = dataGen.worldNoise.get_noise_2dv(pos2d3 * 4) * 0.02
 				if data2d3.humidity > 0.5 + noiseOffset:
 					maxAirVoxels = 3 if voxelSize == 0.5 else 1 if voxelSize == 1 else 0
 
@@ -552,12 +560,12 @@ func _process(_delta: float) -> void:
 		)
 		message.append(
 			(
-				"Voxels: "
-				+ str(totalVoxels)
+				"Chunks: "
+				+ str(chunks.size())
 				+ " Meshes: "
 				+ str(totalMeshes)
-				+ " Chunks: "
-				+ str(chunks.size())
+				+ " Voxels: "
+				+ str(totalVoxels)
 			)
 		)
 		message.append("Subdivision rate: " + str(avgSubdivisionRate))
