@@ -58,6 +58,16 @@ class DataGenerator:
 		# Development scale, between 0 undeveloped and 1 developed
 		var development: float = getWorldsNoise(4, pos2d, 0.1)
 
+		# Rock types for colour, iron is red, calcium is white, graphite is black, apatite is blue
+		var calcium: float = getWorldsNoise(6, pos2d, 0.1)
+		var graphite: float = getWorldsNoise(7, pos2d, 0.1)
+		var iron: float = getWorldsNoise(5, pos2d, 0.1)
+		var rockColor: Color = Color(
+			calcium * 0.8 - graphite * 0.5 + iron * 0.3,
+			calcium * 0.8 - graphite * 0.5 + iron * 0.05,
+			calcium * 0.8 - graphite * 0.5
+		)
+
 		# Get position offset by noise, so it is not on a perfect grid
 		var horizontalOffset = Vector2(
 			worldNoise.get_noise_1d(pos2d.y / 4) * (roomSpacing / 3),
@@ -119,6 +129,25 @@ class DataGenerator:
 			+ worldNoise.get_noise_2dv(pos2d * lerp(20, 3, smoothness)) * lerp(2.0, 0.5, smoothness)
 		)
 
+		# Get floor material
+		var floorMaterial: String = "stone"
+		var floorVariance: float = worldNoise.get_noise_2dv(pos2d * 2)
+		var floorVariance2: float = 0.5 + worldNoise.get_noise_2dv(pos2d * 5) * 0.5
+		var floorVariance3: float = 0.5 + worldNoise.get_noise_2dv(pos2d * 2 + Vector2(500, 500)) * 0.5
+		# Slight offset on the noise to make it look more natural
+		var noiseOffset: float = worldNoise.get_noise_2dv(pos2d * 4) * 0.02
+		# Use sand color if temperature is high and humidity low
+		if temperature > 0.7 + noiseOffset and humidity < 0.3 + noiseOffset:
+			floorMaterial = "sand"
+		# Use moss color if humidity high
+		if humidity > 0.5 + noiseOffset and floorVariance > 0.3 + noiseOffset:
+			floorMaterial = "moss"
+			roomFloor += 0.5
+			roomCeiling += 10 * ((floorVariance - 0.3 - noiseOffset) / 0.7)
+		# Use dirt color around moss
+		elif humidity > 0.5 + noiseOffset and (floorVariance - floorVariance2 * 0.5 > 0.05 + noiseOffset or floorVariance2 + noiseOffset < 0.3):
+			floorMaterial = "dirt"
+
 		var data2d: Dictionary = {
 			"elevation": elevation,
 			"smoothness": smoothness,
@@ -126,6 +155,7 @@ class DataGenerator:
 			"humidity": humidity,
 			"lushness": lushness,
 			"development": development,
+			"rockColor": rockColor,
 			"roomFloor": roomFloor,
 			"roomCeiling": roomCeiling,
 			"roomPosition": roomPosition,
@@ -133,6 +163,10 @@ class DataGenerator:
 			"roomSize": roomSizeLerp,
 			"corridorWidth": corridorWidth,
 			"corridorDist": corridorDist,
+			"floorMaterial": floorMaterial,
+			"floorVariance": floorVariance,
+			"floorVariance2": floorVariance2,
+			"floorVariance3": floorVariance3,
 		}
 		cachedData2d[pos2d] = data2d
 		return data2d
@@ -166,14 +200,9 @@ class DataGenerator:
 	func get_data_color(
 		pos2d: Vector2, pos3d: Vector3, data2d: Dictionary, size: float
 	) -> Dictionary:
-		# Check if data is cached
-		var cachedData: Dictionary = {}
-		if pos2d in cachedData2dColor:
-			cachedData = cachedData2dColor[pos2d]
-
 		# Color from dark to light gray as elevation increases
-		var shade: float = pos3d.y / 30
-		var color: Color = Color(0.5 + shade, 0.4 + shade, 0.3 + shade)
+		var shade: float = pos3d.y / 50
+		var color: Color = data2d.rockColor + Color(shade, shade, shade)
 		var material: String = "standard"
 
 		# Give the color horizontal lines from noise to make it look more natural
@@ -183,15 +212,15 @@ class DataGenerator:
 		)
 		color += Color(noiseShade, noiseShade, noiseShade)
 		# Add brown colors based on 2d noise
-		var noiseColor: float
-		if "noiseColor" in cachedData:
-			noiseColor = cachedData["noiseColor"]
-		else:
-			noiseColor = 0.5 + worldNoise.get_noise_2dv(pos2d * 0.1) / 2
-			cachedData["noiseColor"] = noiseColor
+		var noiseColor: float = 0.5 + worldNoise.get_noise_2dv(pos2d * 0.1) / 2
 		color += Color(noiseColor, noiseColor * 0.5, 0) * 0.1
+		# Add dark stone patches
+		if data2d.floorVariance3 < 0.5:
+			color = lerp(color, color * 0.5, smoothstep(0.5, 0.3, data2d.floorVariance3))
 
 		# Add blue magic lines based on 3d noise
+		# TODO based this on the 4 magic types, earth air water fire
+		# Fire is temperature is hot, water is humidity is high, air is smoothness is high, earth is elevation is low
 		if pos3d.y > -2 and size <= 1:
 			var noiseMagic: float = worldNoise.get_noise_3dv(pos3d * 2)
 			if abs(noiseMagic) < 0.05:
@@ -200,26 +229,22 @@ class DataGenerator:
 
 		# Add color on floors
 		if pos3d.y < (data2d.roomFloor - 4) * 4 - 2 and material == "standard":
-			if "floorColor" in cachedData:
-				color = cachedData["floorColor"]
-			else:
-				# Slight offset on the noise to make it look more natural
-				var noiseOffset: float = worldNoise.get_noise_2dv(pos2d * 4) * 0.02
-
-				# Use sand color if temperature is high and humidity low
-				if data2d.temperature > 0.7 + noiseOffset and data2d.humidity < 0.3 + noiseOffset:
-					var colorVariance: float = worldNoise.get_noise_2dv(pos2d * 2) * 0.15
-					color = Color(1 + colorVariance, 0.9 + colorVariance, 0.6 + colorVariance)
-					cachedData["floorColor"] = color
-				# Use grass color if humidity high
-				if data2d.humidity > 0.5 + noiseOffset:
-					var colorVariance: float = worldNoise.get_noise_2dv(pos2d * 2) * 0.15
-					color = (
-						lerp(Color(0.3, 0.4, 0.1), Color(0.2, 0.4, 0.15), data2d.lushness)
-						+ Color(colorVariance, colorVariance, colorVariance)
-					)
-					cachedData["floorColor"] = color
-
+			var colorVariance: float = data2d.floorVariance * 0.15
+			if data2d.floorMaterial == "sand":
+				color = Color(1 + colorVariance, 0.9 + colorVariance, 0.6 + colorVariance)
+			elif data2d.floorMaterial == "moss":
+				color = (
+					lerp(Color(0.3, 0.4, 0.1), Color(0.2, 0.4, 0.15), data2d.lushness)
+					+ Color(colorVariance, colorVariance, colorVariance)
+				)
+			elif data2d.floorMaterial == "dirt":
+				color = Color(0.6 + colorVariance, 0.3 + colorVariance, 0.05 + colorVariance)
+		if data2d.floorMaterial == "moss":
+			var colorVariance: float = data2d.floorVariance * 0.15
+			color = (
+				lerp(Color(0.3, 0.4, 0.1), Color(0.2, 0.4, 0.15), data2d.lushness)
+				+ Color(colorVariance, colorVariance, colorVariance)
+			)
 		# Jitter the pos3d
 		# Add jiggle to x and z based on noise
 		# Add elevation to y based on noise
@@ -228,8 +253,6 @@ class DataGenerator:
 			pos3d.y + data2d.elevation,
 			pos3d.z + (worldNoise.get_noise_2dv(Vector2(pos3d.x, pos3d.y)) * 0.5)
 		)
-
-		cachedData2dColor[pos2d] = cachedData
 
 		return {
 			"color": color,
@@ -356,10 +379,8 @@ class Chunk:
 			# Fully divide grass
 			var pos2d3: Vector2 = Vector2(pos3d.x, pos3d.z)
 			var data2d3: Dictionary = dataGen.get_data_2d(pos2d3)
-			if pos3d.y < (data2d3.roomFloor - 4) * 4 - 2:
-				var noiseOffset: float = dataGen.worldNoise.get_noise_2dv(pos2d3 * 4) * 0.02
-				if data2d3.humidity > 0.5 + noiseOffset:
-					maxAirVoxels = 3 if voxelSize == 0.5 else 1 if voxelSize == 1 else 0
+			if data2d3.floorMaterial == "moss" and pos3d.y < (data2d3.roomFloor - 4) * 4 - 2:
+				maxAirVoxels = 3 if voxelSize == 0.5 else 1 if voxelSize == 1 else 0
 
 			for x in [pos3d.x - hVoxelSize, pos3d.x + hVoxelSize]:
 				for z in [pos3d.z - hVoxelSize, pos3d.z + hVoxelSize]:
