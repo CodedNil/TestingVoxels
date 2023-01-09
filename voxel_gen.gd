@@ -7,9 +7,10 @@ const smallestVoxelSize: float = 0.25
 const roomSpacing: float = 110
 
 const renderDistance: int = 64
-const yLevels: Array[int] = [0, 1, -1, 2, -2, 3]
+const yLevels: Array[int] = [0, 1, -1, 2, -2, 3, 4]
 
 const msBudget: float = 32  # Max time to spend on subdivision per update frame
+const maxChunksRemovedPerFrame: int = 50  # Max number of chunks to remove per update frame
 
 # Get number of quality levels, based on the largest and smallest voxel size
 const nQualityLevels: int = int(log(largestVoxelSize / smallestVoxelSize) / log(2))
@@ -553,26 +554,34 @@ func _process(_delta: float) -> void:
 
 	# Add subdivision rate to array
 	subdivisionRates.append(subdivisionRate)
-	# Average subdivision rate over the last 20 frames
-	var avgSubdivisionRate: float = 0
-	if subdivisionRates.size() > 20:
-		for i in range(20):
-			avgSubdivisionRate += subdivisionRates[len(subdivisionRates) - 1 - i]
-		avgSubdivisionRate /= 20
 
 	# Remove chunks that are too far away
-	var totalVoxels: int = 0
-	var totalMeshes: int = 0
+	var chunksToRemove: Array[Vector3] = []
 	for chunkPos in chunks:
-		if chunkPos.distance_to(cameraPos / chunkSize) > renderDistance * chunkSize:
-			chunks[chunkPos].queue_free()
-			chunks.erase(chunkPos)
-		else:
-			totalVoxels += chunks[chunkPos].voxelsCount
-			totalMeshes += chunks[chunkPos].multiMeshes.size() * voxelMaterials.size()
+		if chunkPos.distance_to(cameraPos) > renderDistance * 1.2 * chunkSize:
+			chunksToRemove.append(chunkPos)
+			if chunksToRemove.size() > maxChunksRemovedPerFrame:
+				break
+	# Remove max x chunks per frame
+	for chunkPos in chunksToRemove:
+		chunks[chunkPos].queue_free()
+		chunks.erase(chunkPos)
 
 	# Print stats
 	if frameNumber % 20 == 0:
+		# Average subdivision rate over the last 20 frames
+		var avgSubdivisionRate: float = 0
+		if subdivisionRates.size() > 20:
+			for i in range(20):
+				avgSubdivisionRate += subdivisionRates[len(subdivisionRates) - 1 - i]
+			avgSubdivisionRate /= 20
+		
+		var totalVoxels: int = 0
+		var totalMeshes: int = 0
+		for chunkPos in chunks:
+			totalVoxels += chunks[chunkPos].voxelsCount
+			totalMeshes += chunks[chunkPos].multiMeshes.size() * voxelMaterials.size()
+		
 		var message: Array[String] = []
 		message.append(
 			(
