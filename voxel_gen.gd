@@ -187,12 +187,16 @@ class DataGenerator:
 			)
 			. length()
 		)
-		var roomInside3d: bool = roomDist3d < data2d.roomSize
+		var roomInside3d: bool = data2d.roomDist < data2d.roomSize and pos3d.y > -data2d.roomFloor and pos3d.y < data2d.roomCeiling
+		if pos3d.x < 0:
+			roomInside3d = roomDist3d < data2d.roomSize
 
 		var corridorDist3d: float = (
 			Vector2(data2d.corridorDist, pos3d.y * roomHeightSmooth / 2.0) . length()
 		)
-		var corridorInside3d: bool = corridorDist3d < data2d.corridorWidth
+		var corridorInside3d: bool = data2d.corridorDist < data2d.corridorWidth and pos3d.y > -data2d.roomFloor and pos3d.y < data2d.roomCeiling
+		if pos3d.x < 0:
+			corridorInside3d = corridorDist3d < data2d.corridorWidth
 
 		var inside3d: bool = roomInside3d or corridorInside3d
 		cachedData3d[pos3d] = inside3d
@@ -383,8 +387,8 @@ class Chunk:
 			# Fully divide grass
 			var pos2d3: Vector2 = Vector2(pos3d.x, pos3d.z)
 			var data2d3: Dictionary = dataGen.get_data_2d(pos2d3)
-			if data2d3.floorMaterial == "moss" and pos3d.y < (data2d3.roomFloor - 4) * 4 - 2:
-				maxAirVoxels = 3 if voxelSize == 0.5 else 1 if voxelSize == 1 else 0
+			if data2d3.floorMaterial == "moss":
+				maxAirVoxels = 0
 
 			for x in [pos3d.x - hVoxelSize, pos3d.x + hVoxelSize]:
 				for z in [pos3d.z - hVoxelSize, pos3d.z + hVoxelSize]:
