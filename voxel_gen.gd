@@ -1,13 +1,13 @@
 extends StaticBody3D
 
-const chunkSize: float = 8.0
-const largestVoxelSize: float = 4.0
+const chunkSize: float = 4.0
+const largestVoxelSize: float = 2.0
 const smallestVoxelSize: float = 0.25
 
 const roomSpacing: float = 110
 
-const renderDistance: int = 32
-const yLevels: Array[int] = [0, 1, -1, 2]
+const renderDistance: int = 64
+const yLevels: Array[int] = [0, 1, -1, 2, -2, 3]
 
 const msBudget: float = 32  # Max time to spend on subdivision per update frame
 
@@ -224,6 +224,9 @@ class DataGenerator:
 		if pos3d.y > -2 and size <= 1:
 			var noiseMagic: float = worldNoise.get_noise_3dv(pos3d * 2)
 			if abs(noiseMagic) < 0.05:
+				# var magicColor: Color = Color(0, 0, 0)
+				# if data2d.temperature > 0.5:
+				# 	magicColor += Color(1, 0, 0)
 				color = color * 0.1 + Color(0, 0, 1 - abs(noiseMagic) * 10)
 				material = "emissive"
 
@@ -455,7 +458,7 @@ func _process(_delta: float) -> void:
 
 	# Progress on chunks
 	var chunksViewed: Array[Vector2] = []
-	var rotateAngles: float = 256
+	var rotateAngles: float = 64
 	# Keep track of chunks to progress by voxel size, so we can progress in order of quality
 	var chunksToProgress: Dictionary = {}
 	for qLevel in range(nQualityLevels + 1):
@@ -468,7 +471,7 @@ func _process(_delta: float) -> void:
 		# Start rotation from 0, then -angle, then angle, then -angle * 2, then angle * 2, etc
 		var flip: int = 1 if angle % 2 == 0 else -1
 		var dir: Vector3 = cameraDir.rotated(
-			Vector3(0, 1, 0), deg_to_rad(180 + angle * flip * 360 / rotateAngles)
+			Vector3(0, 1, 0), deg_to_rad(180 + angle * flip * 360 / rotateAngles + sin(Time.get_ticks_msec() / 500.0) * 10)
 		)
 		for i in range(renderDistance):
 			var pos: Vector3 = cameraPos + dir * i * chunkSize
@@ -514,7 +517,7 @@ func _process(_delta: float) -> void:
 						# Get the chunks minimum voxel size, based on how close it is to the camera, halved from max each time
 						var subdivisionLevel: int = clamp(
 							round(
-								nQualityLevels - chunkDistance * lerp(0.25, 0.8, angleQuality) + 1.0
+								nQualityLevels - chunkDistance * lerp(0.1, 0.4, angleQuality) + 2.0
 							),
 							0,
 							nQualityLevels
@@ -561,7 +564,7 @@ func _process(_delta: float) -> void:
 	var totalVoxels: int = 0
 	var totalMeshes: int = 0
 	for chunkPos in chunks:
-		if chunkPos.distance_to(cameraPos) > renderDistance * chunkSize:
+		if chunkPos.distance_to(cameraPos / chunkSize) > renderDistance * chunkSize:
 			chunks[chunkPos].queue_free()
 			chunks.erase(chunkPos)
 		else:
