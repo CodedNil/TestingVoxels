@@ -4,13 +4,13 @@ const chunkSize: float = 4.0
 const largestVoxelSize: float = 2.0
 const smallestVoxelSize: float = 0.25
 
-const roomSpacing: float = 110
+const roomSpacing: float = 150
 
 const renderDistance: int = 64
-const yLevels: Array[int] = [0, 1, -1, 2, -2, 3, 4, 5]
+const yLevels: Array[int] = [0, 1, -1, 2, -2, 3, -3, 4, 5, 6, 7, 8]
 
-const msBudget: float = 32  # Max time to spend on subdivision per update frame
-const maxChunksRemovedPerFrame: int = 50  # Max number of chunks to remove per update frame
+const msBudget: float = 64  # Max time to spend on subdivision per update frame
+const maxChunksRemovedPerFrame: int = 5  # Max number of chunks to remove per update frame
 
 # Get number of quality levels, based on the largest and smallest voxel size
 const nQualityLevels: int = int(log(largestVoxelSize / smallestVoxelSize) / log(2))
@@ -22,7 +22,7 @@ class DataGenerator:
 
 	func _init() -> void:
 		worldNoise.frequency = 0.03
-		worldNoise.seed = 1234
+		worldNoise.seed = 4321
 
 	# Get a noise value clamped from 0 to 1, but the noise is scaled up to clamp extreme values
 	func getWorldsNoise(offset: float, pos2d: Vector2, scale: float) -> float:
@@ -60,9 +60,9 @@ class DataGenerator:
 		var development: float = getWorldsNoise(4, pos2d, 0.1)
 
 		# Rock types for colour, iron is red, calcium is white, graphite is black, apatite is blue
-		var calcium: float = getWorldsNoise(6, pos2d, 0.1)
-		var graphite: float = getWorldsNoise(7, pos2d, 0.1)
-		var iron: float = getWorldsNoise(5, pos2d, 0.1)
+		var calcium: float = getWorldsNoise(5, pos2d, 0.1)
+		var graphite: float = getWorldsNoise(6, pos2d, 0.1)
+		var iron: float = getWorldsNoise(7, pos2d, 0.1)
 		var rockColor: Color = Color(
 			calcium * 0.8 - graphite * 0.5 + iron * 0.3,
 			calcium * 0.8 - graphite * 0.5 + iron * 0.05,
@@ -82,7 +82,7 @@ class DataGenerator:
 		)
 		# Get room noise seed, based on room position
 		var roomSeed: float = roomPosition.x + roomPosition.y * 123
-		# roomPosition += horizontalOffset
+		roomPosition += horizontalOffset
 		# Get angle from center with x and z, from -pi to pi
 		var roomAngle: float = pos2d.angle_to_point(roomPosition)
 		# Get 2d distance from center with x and z
@@ -91,13 +91,12 @@ class DataGenerator:
 		# Calculate room size, based on noise from the angle
 		var roomBaseSize: float = (
 			lerp(20, 25, smoothness) + worldNoise.get_noise_1d(roomSeed) * lerp(15, 2, smoothness)
-		)
-		var roomSizeNoise = 5 + (1 - smoothness) * 30
+		) + getWorldsNoise(8, pos2d * lerp(20, 4, smoothness), 0.1) * 40
 		var roomSize0: float = (
-			roomBaseSize + worldNoise.get_noise_2d(roomSeed, -PI * roomSizeNoise) * roomBaseSize / 3 * smoothness
+			roomBaseSize + worldNoise.get_noise_2d(roomSeed, -PI) * roomBaseSize / 3 * smoothness
 		)
 		var roomSize: float = (
-			roomBaseSize + (worldNoise.get_noise_2d(roomSeed, roomAngle * roomSizeNoise) * roomBaseSize / 3 * smoothness)
+			roomBaseSize + (worldNoise.get_noise_2d(roomSeed, roomAngle) * roomBaseSize / 3 * smoothness)
 		)
 		# For the last 25% of the angle, so from half pi to pi, lerp towards roomSize0
 		var roomSizeLerp: float = (
@@ -113,18 +112,9 @@ class DataGenerator:
 			abs(pos2d.y + worldNoise.get_noise_1d(pos2d.x) * 8 - roomPosition.y),
 		)
 
-		# Get room height data
-		var roomFloor: float = (
-			4.0
-			+ worldNoise.get_noise_2dv(pos2d * lerp(4.0, 1.0, smoothness)) * lerp(2.0, 0.5, smoothness)
-		)
-		var roomCeiling: float = (
-			2.0
-			+ worldNoise.get_noise_2dv(pos2d * lerp(20.0, 3.0, smoothness)) * lerp(2.0, 0.5, smoothness)
-		)
 		# Higher numbers reduce the height exponentially
-		var roomFloor2: float = 8.0 - getWorldsNoise(11, pos2d, 0.1) * 3
-		var roomCeiling2: float = 1.0 + getWorldsNoise(12, pos2d, 0.1) * 3
+		var roomFloor: float = 8.0 - getWorldsNoise(11, pos2d, 0.1) * 4
+		var roomCeiling: float = 2.0 + getWorldsNoise(12, pos2d, 0.1) * 3
 
 		# Get floor material
 		var floorMaterial: String = "stone"
@@ -139,7 +129,7 @@ class DataGenerator:
 		# Use moss color if humidity high
 		if humidity > 0.5 + noiseOffset and floorVariance > 0.3 + noiseOffset:
 			floorMaterial = "moss"
-			roomFloor += 0.25
+			roomFloor += 1
 			roomCeiling += 10 * ((floorVariance - 0.3 - noiseOffset) / 0.7)
 		# Use dirt color around moss
 		elif humidity > 0.5 + noiseOffset and (floorVariance - floorVariance2 * 0.5 > 0.05 + noiseOffset or floorVariance2 + noiseOffset < 0.3):
@@ -155,8 +145,6 @@ class DataGenerator:
 			"rockColor": rockColor,
 			"roomFloor": roomFloor,
 			"roomCeiling": roomCeiling,
-			"roomFloor2": roomFloor2,
-			"roomCeiling2": roomCeiling2,
 			"roomPosition": roomPosition,
 			"roomDist": roomDist,
 			"roomSize": roomSizeLerp,
@@ -176,7 +164,6 @@ class DataGenerator:
 			return cachedData3d[pos3d]
 
 		var roomHeightSmooth: float = data2d.roomFloor if pos3d.y < 0 else data2d.roomCeiling
-
 		var roomDist3d: float = (
 			Vector3(
 				pos3d.x - data2d.roomPosition.x,
@@ -185,29 +172,14 @@ class DataGenerator:
 			)
 			. length()
 		)
-		var roomHeightSmooth2: float = data2d.roomFloor2 if pos3d.y < 0 else data2d.roomCeiling2
-
-		var roomDist3d2: float = (
-			Vector3(
-				pos3d.x - data2d.roomPosition.x,
-				pos3d.y * roomHeightSmooth2,
-				pos3d.z - data2d.roomPosition.y
-			)
-			. length()
-		)
-		var roomInside3d: bool = roomDist3d < data2d.roomSize	
-		if pos3d.x > 0:
-			# var distFromHeight: float = max(pos3d.y - data2d.roomFloor2, data2d.roomCeiling2 - pos3d.y, 0.0)
-			roomInside3d = roomDist3d2 < data2d.roomSize#data2d.roomDist < data2d.roomSize and pos3d.y > -data2d.roomFloor2 and pos3d.y < data2d.roomCeiling2
+		var roomInside3d: bool = roomDist3d < data2d.roomSize
 
 		var corridorDist3d: float = (
 			Vector2(data2d.corridorDist, pos3d.y * roomHeightSmooth / 2.0).length()
 		)
 		var corridorInside3d: bool = corridorDist3d < data2d.corridorWidth
-		if pos3d.x > 0:
-			corridorInside3d = data2d.corridorDist < data2d.corridorWidth and pos3d.y > -data2d.roomFloor2 and pos3d.y < data2d.roomCeiling2 / 2.0
 
-		var inside3d: bool = roomInside3d# or corridorInside3d
+		var inside3d: bool = roomInside3d or corridorInside3d
 		cachedData3d[pos3d] = inside3d
 		return inside3d
 
@@ -470,48 +442,53 @@ func _process(_delta: float) -> void:
 
 	var subdivisionRate: int = 0
 
+	# Previous chunk searching Chunks: 10404 Meshes: 27774 Voxels: 248065
+
 	# Progress on chunks
-	var chunksViewed: Array[Vector2] = []
-	var rotateAngles: float = 64
+	var chunksViewed: Array[Vector3] = []
+	var rotateAngles: float = 16
+	# Get rotate per run and jitter
+	var rotatePerRun: float = 360 / rotateAngles
+	var jitter: float = sin(Time.get_ticks_msec() / (200.0 + randf() * 50)) * rotatePerRun
+	var jitter2: float = cos(Time.get_ticks_msec() / (200.0 + randf() * 50)) * rotatePerRun
 	# Keep track of chunks to progress by voxel size, so we can progress in order of quality
 	var chunksToProgress: Dictionary = {}
 	for qLevel in range(nQualityLevels + 1):
 		var voxelSize: float = largestVoxelSize / pow(2, qLevel)
 		chunksToProgress[voxelSize] = []
 	# Loop through chunks in rotated lines from center
-	for angle in range(rotateAngles / 2):
+	for angleH in range(rotateAngles / 2):
 		# 0 to 1 for the angle of rotation
-		var angleQuality: float = angle / rotateAngles * 2
+		var angleQuality: float = angleH / rotateAngles * 2
 		# Start rotation from 0, then -angle, then angle, then -angle * 2, then angle * 2, etc
-		var flip: int = 1 if angle % 2 == 0 else -1
+		var flip: int = 1 if angleH % 2 == 0 else -1
 		var dir: Vector3 = cameraDir.rotated(
-			Vector3(0, 1, 0), deg_to_rad(180 + angle * flip * 360 / rotateAngles + sin(Time.get_ticks_msec() / 500.0) * 10)
+			Vector3(0, 1, 0), deg_to_rad(180 + angleH * flip * rotatePerRun + jitter)
 		)
-		for i in range(renderDistance):
-			var pos: Vector3 = cameraPos + dir * i * chunkSize
-
-			var renderChunkPos2d: Vector2 = (
-				Vector2(int(pos.x / chunkSize), int(pos.z / chunkSize)) * chunkSize
+		# Loop through chunks in rotated lines, vertical
+		for angleV in range(rotateAngles / 4):
+			# 0 to 1 for the angle of rotation
+			var angleQualityV: float = angleV / rotateAngles * 2
+			# Start rotation from 0, then -angle, then angle, then -angle * 2, then angle * 2, etc
+			var flipV: int = 1 if angleV % 2 == 0 else -1
+			var dirV: Vector3 = dir.rotated(
+				Vector3(1, 0, 0), deg_to_rad(angleV * flipV * rotatePerRun + jitter2)
 			)
-			# If the chunk is already in the list, skip it
-			if renderChunkPos2d in chunksViewed:
-				continue
-			chunksViewed.append(renderChunkPos2d)
+			for i in range(renderDistance):
+				var pos: Vector3 = cameraPos + dirV * i * chunkSize
 
-			# Get if entire y range is empty space, skip if is
-			var emptyY: int = 0
-			for y in yLevels:
-				# Get the rounded snapped chunk position
-				var renderChunkPos: Vector3 = (
-					Vector3(int(pos.x / chunkSize), y, int(pos.z / chunkSize)) * chunkSize
-				)
+				var renderChunkPos3d: Vector3 = round(pos / chunkSize) * chunkSize
+				# If the chunk is already in the list, skip it
+				if renderChunkPos3d in chunksViewed:
+					continue
+				chunksViewed.append(renderChunkPos3d)
 
 				# Find if chunk exists
-				var chunk: Chunk = chunks.get(renderChunkPos)
+				var chunk: Chunk = chunks.get(renderChunkPos3d)
 				if chunk == null:
-					chunk = Chunk.new(renderChunkPos, dataGenerator)
+					chunk = Chunk.new(renderChunkPos3d, dataGenerator)
 					add_child(chunk)
-					chunks[renderChunkPos] = chunk
+					chunks[renderChunkPos3d] = chunk
 					subdivisionRate += chunk.progress(startTime)
 				else:
 					if chunk.progressSubdivisions.size() != 0:
@@ -521,17 +498,11 @@ func _process(_delta: float) -> void:
 						and chunk.progressSubdivisions.size() == 0
 					):
 						# Get the distance from the camera
-						var chunkDistance: float = (
-							(
-								Vector2(renderChunkPos.x, renderChunkPos.z)
-								. distance_to(Vector2(cameraPos.x, cameraPos.z))
-							)
-							/ chunkSize
-						)
+						var chunkDistance: float = renderChunkPos3d.distance_to(cameraPos) / chunkSize
 						# Get the chunks minimum voxel size, based on how close it is to the camera, halved from max each time
 						var subdivisionLevel: int = clamp(
 							round(
-								nQualityLevels - chunkDistance * lerp(0.1, 0.4, angleQuality) + 2.0
+								nQualityLevels - chunkDistance * lerp(0.1, 0.4, angleQuality * angleQualityV) + 2.0
 							),
 							0,
 							nQualityLevels
@@ -548,9 +519,8 @@ func _process(_delta: float) -> void:
 					for material in chunk.multiMeshes[largestVoxelSize]:
 						firstMeshCount += chunk.multiMeshes[largestVoxelSize][material][1].size()
 				if firstMeshCount == 8:
-					emptyY += 1
-			if emptyY == len(yLevels):
-				break
+					break
+			# If we have gone over the time budget, break
 			if Time.get_ticks_msec() - startTime > msBudget:
 				break
 		if Time.get_ticks_msec() - startTime > msBudget:

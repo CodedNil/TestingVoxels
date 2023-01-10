@@ -11,6 +11,7 @@ var _w = false
 var _s = false
 var _a = false
 var _d = false
+var _f = false
 var _shift = false
 var _space = false
 
@@ -36,6 +37,8 @@ func _input(event):
 				_a = event.pressed
 			KEY_D:
 				_d = event.pressed
+			KEY_F:
+				_f = event.pressed
 			KEY_SHIFT:
 				_shift = event.pressed
 			KEY_SPACE:
@@ -56,6 +59,14 @@ func _process(_delta):
 	
 		rotate_y(deg_to_rad(-yaw))
 		get_node("CameraRotator").rotate_object_local(Vector3(1,0,0), deg_to_rad(-pitch))
+
+	# If f key pressed, move the camera overhead
+	if _f:
+		get_node("CameraRotator/Camera3D").position = Vector3(0, 150, 0)
+		get_node("CameraRotator/Camera3D").rotation_degrees = Vector3(-90, 0, 0)
+	else:
+		get_node("CameraRotator/Camera3D").position = Vector3(0, 1.5, 3)
+		get_node("CameraRotator/Camera3D").rotation_degrees = Vector3(-20, 0, 0)
 
 # Updates camera movement
 func _physics_process(delta):
