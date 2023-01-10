@@ -37,7 +37,7 @@ auto_exposure_min_sensitivity = 30.0
 script = ExtResource("4_1a6st")
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="VoxelGenerator"]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -1.16751, 1.23016)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 1.23)
 shape = SubResource("BoxShape3D_1tb5w")
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
@@ -45,7 +45,7 @@ environment = SubResource("Environment_0p6un")
 camera_attributes = SubResource("CameraAttributesPractical_eb5yk")
 
 [node name="CharacterBody3D" parent="." instance=ExtResource("4_dqolu")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.664442, 1.29466)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1.295)
 
 [node name="OmniLight3D" type="OmniLight3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -2.4482, -1)

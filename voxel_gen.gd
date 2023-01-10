@@ -7,7 +7,7 @@ const smallestVoxelSize: float = 0.25
 const roomSpacing: float = 110
 
 const renderDistance: int = 64
-const yLevels: Array[int] = [0, 1, -1, 2, -2, 3, 4]
+const yLevels: Array[int] = [0, 1, -1, 2, -2, 3, 4, 5]
 
 const msBudget: float = 32  # Max time to spend on subdivision per update frame
 const maxChunksRemovedPerFrame: int = 50  # Max number of chunks to remove per update frame
@@ -82,7 +82,7 @@ class DataGenerator:
 		)
 		# Get room noise seed, based on room position
 		var roomSeed: float = roomPosition.x + roomPosition.y * 123
-		roomPosition += horizontalOffset
+		# roomPosition += horizontalOffset
 		# Get angle from center with x and z, from -pi to pi
 		var roomAngle: float = pos2d.angle_to_point(roomPosition)
 		# Get 2d distance from center with x and z
@@ -94,17 +94,10 @@ class DataGenerator:
 		)
 		var roomSizeNoise = 5 + (1 - smoothness) * 30
 		var roomSize0: float = (
-			roomBaseSize
-			+ worldNoise.get_noise_2d(roomSeed, -PI * roomSizeNoise) * roomBaseSize / 3 * smoothness
+			roomBaseSize + worldNoise.get_noise_2d(roomSeed, -PI * roomSizeNoise) * roomBaseSize / 3 * smoothness
 		)
 		var roomSize: float = (
-			roomBaseSize
-			+ (
-				worldNoise.get_noise_2d(roomSeed, roomAngle * roomSizeNoise)
-				* roomBaseSize
-				/ 3
-				* smoothness
-			)
+			roomBaseSize + (worldNoise.get_noise_2d(roomSeed, roomAngle * roomSizeNoise) * roomBaseSize / 3 * smoothness)
 		)
 		# For the last 25% of the angle, so from half pi to pi, lerp towards roomSize0
 		var roomSizeLerp: float = (
@@ -129,14 +122,9 @@ class DataGenerator:
 			2.0
 			+ worldNoise.get_noise_2dv(pos2d * lerp(20.0, 3.0, smoothness)) * lerp(2.0, 0.5, smoothness)
 		)
-		var roomFloor2: float = (
-			4.0
-			+ worldNoise.get_noise_2dv(pos2d * lerp(4.0, 1.0, smoothness)) * lerp(2.0, 0.5, smoothness)
-		)
-		var roomCeiling2: float = (
-			5.0
-			+ worldNoise.get_noise_2dv(pos2d * lerp(20.0, 3.0, smoothness)) * lerp(5.0, 2.0, smoothness)
-		)
+		# Higher numbers reduce the height exponentially
+		var roomFloor2: float = 8.0 - getWorldsNoise(11, pos2d, 0.1) * 3
+		var roomCeiling2: float = 1.0 + getWorldsNoise(12, pos2d, 0.1) * 3
 
 		# Get floor material
 		var floorMaterial: String = "stone"
@@ -151,9 +139,8 @@ class DataGenerator:
 		# Use moss color if humidity high
 		if humidity > 0.5 + noiseOffset and floorVariance > 0.3 + noiseOffset:
 			floorMaterial = "moss"
-			roomFloor += 0.5
+			roomFloor += 0.25
 			roomCeiling += 10 * ((floorVariance - 0.3 - noiseOffset) / 0.7)
-			roomCeiling2 -= 10 * ((floorVariance - 0.3 - noiseOffset) / 0.7)
 		# Use dirt color around moss
 		elif humidity > 0.5 + noiseOffset and (floorVariance - floorVariance2 * 0.5 > 0.05 + noiseOffset or floorVariance2 + noiseOffset < 0.3):
 			floorMaterial = "dirt"
@@ -198,18 +185,29 @@ class DataGenerator:
 			)
 			. length()
 		)
-		var roomInside3d: bool = data2d.roomDist < data2d.roomSize and pos3d.y > -data2d.roomFloor2 and pos3d.y < data2d.roomCeiling2
-		if pos3d.x < 0:
-			roomInside3d = roomDist3d < data2d.roomSize
+		var roomHeightSmooth2: float = data2d.roomFloor2 if pos3d.y < 0 else data2d.roomCeiling2
+
+		var roomDist3d2: float = (
+			Vector3(
+				pos3d.x - data2d.roomPosition.x,
+				pos3d.y * roomHeightSmooth2,
+				pos3d.z - data2d.roomPosition.y
+			)
+			. length()
+		)
+		var roomInside3d: bool = roomDist3d < data2d.roomSize	
+		if pos3d.x > 0:
+			# var distFromHeight: float = max(pos3d.y - data2d.roomFloor2, data2d.roomCeiling2 - pos3d.y, 0.0)
+			roomInside3d = roomDist3d2 < data2d.roomSize#data2d.roomDist < data2d.roomSize and pos3d.y > -data2d.roomFloor2 and pos3d.y < data2d.roomCeiling2
 
 		var corridorDist3d: float = (
 			Vector2(data2d.corridorDist, pos3d.y * roomHeightSmooth / 2.0).length()
 		)
-		var corridorInside3d: bool = data2d.corridorDist < data2d.corridorWidth and pos3d.y > -data2d.roomFloor2 and pos3d.y < data2d.roomCeiling2 / 2.0
-		if pos3d.x < 0:
-			corridorInside3d = corridorDist3d < data2d.corridorWidth
+		var corridorInside3d: bool = corridorDist3d < data2d.corridorWidth
+		if pos3d.x > 0:
+			corridorInside3d = data2d.corridorDist < data2d.corridorWidth and pos3d.y > -data2d.roomFloor2 and pos3d.y < data2d.roomCeiling2 / 2.0
 
-		var inside3d: bool = roomInside3d or corridorInside3d
+		var inside3d: bool = roomInside3d# or corridorInside3d
 		cachedData3d[pos3d] = inside3d
 		return inside3d
 
