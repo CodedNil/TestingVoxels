@@ -122,12 +122,20 @@ class DataGenerator:
 
 		# Get room height data
 		var roomFloor: float = (
-			4
-			+ worldNoise.get_noise_2dv(pos2d * lerp(4, 1, smoothness)) * lerp(2.0, 0.5, smoothness)
+			4.0
+			+ worldNoise.get_noise_2dv(pos2d * lerp(4.0, 1.0, smoothness)) * lerp(2.0, 0.5, smoothness)
 		)
 		var roomCeiling: float = (
-			2
-			+ worldNoise.get_noise_2dv(pos2d * lerp(20, 3, smoothness)) * lerp(2.0, 0.5, smoothness)
+			2.0
+			+ worldNoise.get_noise_2dv(pos2d * lerp(20.0, 3.0, smoothness)) * lerp(2.0, 0.5, smoothness)
+		)
+		var roomFloor2: float = (
+			4.0
+			+ worldNoise.get_noise_2dv(pos2d * lerp(4.0, 1.0, smoothness)) * lerp(2.0, 0.5, smoothness)
+		)
+		var roomCeiling2: float = (
+			5.0
+			+ worldNoise.get_noise_2dv(pos2d * lerp(20.0, 3.0, smoothness)) * lerp(5.0, 2.0, smoothness)
 		)
 
 		# Get floor material
@@ -145,6 +153,7 @@ class DataGenerator:
 			floorMaterial = "moss"
 			roomFloor += 0.5
 			roomCeiling += 10 * ((floorVariance - 0.3 - noiseOffset) / 0.7)
+			roomCeiling2 -= 10 * ((floorVariance - 0.3 - noiseOffset) / 0.7)
 		# Use dirt color around moss
 		elif humidity > 0.5 + noiseOffset and (floorVariance - floorVariance2 * 0.5 > 0.05 + noiseOffset or floorVariance2 + noiseOffset < 0.3):
 			floorMaterial = "dirt"
@@ -159,6 +168,8 @@ class DataGenerator:
 			"rockColor": rockColor,
 			"roomFloor": roomFloor,
 			"roomCeiling": roomCeiling,
+			"roomFloor2": roomFloor2,
+			"roomCeiling2": roomCeiling2,
 			"roomPosition": roomPosition,
 			"roomDist": roomDist,
 			"roomSize": roomSizeLerp,
@@ -187,14 +198,14 @@ class DataGenerator:
 			)
 			. length()
 		)
-		var roomInside3d: bool = data2d.roomDist < data2d.roomSize and pos3d.y > -data2d.roomFloor and pos3d.y < data2d.roomCeiling
+		var roomInside3d: bool = data2d.roomDist < data2d.roomSize and pos3d.y > -data2d.roomFloor2 and pos3d.y < data2d.roomCeiling2
 		if pos3d.x < 0:
 			roomInside3d = roomDist3d < data2d.roomSize
 
 		var corridorDist3d: float = (
-			Vector2(data2d.corridorDist, pos3d.y * roomHeightSmooth / 2.0) . length()
+			Vector2(data2d.corridorDist, pos3d.y * roomHeightSmooth / 2.0).length()
 		)
-		var corridorInside3d: bool = data2d.corridorDist < data2d.corridorWidth and pos3d.y > -data2d.roomFloor and pos3d.y < data2d.roomCeiling
+		var corridorInside3d: bool = data2d.corridorDist < data2d.corridorWidth and pos3d.y > -data2d.roomFloor2 and pos3d.y < data2d.roomCeiling2 / 2.0
 		if pos3d.x < 0:
 			corridorInside3d = corridorDist3d < data2d.corridorWidth
 
