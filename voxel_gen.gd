@@ -502,73 +502,11 @@ func _process(_delta: float) -> void:
 
 	# Previous chunk searching Chunks: 10404 Meshes: 27774 Voxels: 248065
 
-<<<<<<< HEAD
-	# Progress on chunks
-	var chunksViewed: Array[Vector2] = []
-	var rotateAngles: float = 16
-	# Get rotate per run and jitter
-	var rotatePerRun: float = 360 / rotateAngles
-	var jitter: float = sin(Time.get_ticks_msec() / 500.0) * rotatePerRun
-	# Keep track of chunks to progress by voxel size, so we can progress in order of quality
-=======
->>>>>>> c00d544 (Testing new chunk search)
 	var chunksToProgress: Dictionary = {}
 	var chunksViewed: Array[Vector3] = []
 	for qLevel in range(nQualityLevels + 1):
 		var voxelSize: float = largestVoxelSize / pow(2, qLevel)
 		chunksToProgress[voxelSize] = []
-<<<<<<< HEAD
-	# Loop through chunks in rotated lines from center
-	for angle in range(rotateAngles / 2):
-		# 0 to 1 for the angle of rotation
-		var angleQuality: float = angle / rotateAngles * 2
-		# Start rotation from 0, then -angle, then angle, then -angle * 2, then angle * 2, etc
-		var flip: int = 1 if angle % 2 == 0 else -1
-		var dir: Vector3 = cameraDir.rotated(
-			Vector3(0, 1, 0), deg_to_rad(180 + angle * flip * rotatePerRun + jitter)
-		)
-		for i in range(renderDistance):
-			var pos: Vector3 = cameraPos + dir * i * chunkSize
-
-			var renderChunkPos2d: Vector2 = Vector2(int(pos.x / chunkSize), int(pos.z / chunkSize)) * chunkSize
-			# If the chunk is already in the list, skip it
-			if renderChunkPos2d in chunksViewed:
-				continue
-			chunksViewed.append(renderChunkPos2d)
-
-			# Get if entire y range is empty space, skip if is
-			var emptyY: int = 0
-			for y in yLevels:
-				# Get the rounded snapped chunk position
-				var renderChunkPos: Vector3 = (
-					Vector3(int(pos.x / chunkSize), y, int(pos.z / chunkSize)) * chunkSize
-				)
-				# Find if chunk exists
-				var chunk: Chunk = chunks.get(renderChunkPos)
-				if chunk == null:
-					chunk = Chunk.new(renderChunkPos, dataGenerator)
-					add_child(chunk)
-					chunks[renderChunkPos] = chunk
-					subdivisionRate += chunk.progress(startTime)
-				else:
-					if chunk.progressSubdivisions.size() != 0:
-						chunksToProgress[chunk.chunksVoxelSize].append(chunk)
-					elif (
-						chunk.heldSubdivisons.size() != 0
-						and chunk.progressSubdivisions.size() == 0
-					):
-						# Get the distance from the camera
-						var chunkDistance: float = renderChunkPos2d.distance_to(Vector2(cameraPos.x, cameraPos.z)) / chunkSize
-						# Get the chunks minimum voxel size, based on how close it is to the camera, halved from max each time
-						var subdivisionLevel: int = clamp(
-							round(
-								nQualityLevels - chunkDistance * lerp(0.1, 0.4, angleQuality) + 2.0
-							),
-							0,
-							nQualityLevels
-						)
-						var newVoxelSize: float = largestVoxelSize / pow(2, subdivisionLevel)
-=======
 
 	var chunkPos: Vector3 = Vector3(round(cameraPos.x / chunkSize), round(cameraPos.y / chunkSize), round(cameraPos.z / chunkSize))
 	var snappedDir: Vector3 = Vector3(round(cameraDir.x), round(cameraDir.y), round(cameraDir.z))
@@ -606,7 +544,6 @@ func _process(_delta: float) -> void:
 	# 		)
 	# 		for i in range(renderDistance):
 	# 			var pos: Vector3 = cameraPos + dirV * i * chunkSize
->>>>>>> c00d544 (Testing new chunk search)
 
 	# 			var renderChunkPos3d: Vector3 = round(pos / chunkSize) * chunkSize
 	# 			# If the chunk is already in the list, skip it
@@ -614,22 +551,6 @@ func _process(_delta: float) -> void:
 	# 				continue
 	# 			chunksViewed.append(renderChunkPos3d)
 
-<<<<<<< HEAD
-				# Get first mesh instance count to see if it is empty
-				var firstMeshCount = 0
-				if largestVoxelSize in chunk.multiMeshes:
-					for material in chunk.multiMeshes[largestVoxelSize]:
-						firstMeshCount += chunk.multiMeshes[largestVoxelSize][material][1].size()
-				if firstMeshCount == 8:
-					emptyY += 1
-			if emptyY == len(yLevels):
-				break
-			# If we have gone over the time budget, break
-			if Time.get_ticks_msec() - startTime > msBudget:
-				break
-		if Time.get_ticks_msec() - startTime > msBudget:
-			break
-=======
 	# 			# Find if chunk exists
 	# 			var chunk: Chunk = chunks.get(renderChunkPos3d)
 	# 			if chunk == null:
@@ -672,7 +593,6 @@ func _process(_delta: float) -> void:
 	# 			break
 	# 	if Time.get_ticks_msec() - startTime > msBudget:
 	# 		break
->>>>>>> c00d544 (Testing new chunk search)
 
 	# Progress on chunks
 	for voxelSize in chunksToProgress:
