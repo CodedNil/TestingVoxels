@@ -426,6 +426,64 @@ var subdivisionRates = []
 
 var frameNumber: int = 0
 
+func searchChunk(subdivisionRate: int, chunksViewed: Array[Vector3], chunksToProgress: Dictionary, startTime: float, startPos: Vector3, pos: Vector3, dir: Vector3) -> int:
+	var distance: float = (startPos - pos).length()
+	if distance > renderDistance:
+		return subdivisionRate
+	# If chunk has already being viewed, skip
+	if pos in chunksViewed:
+		return subdivisionRate
+	chunksViewed.append(pos)
+	# If we have gone over the time budget, end
+	if Time.get_ticks_msec() - startTime > msBudget:
+		return subdivisionRate
+
+	# Find if chunk exists
+	var chunk: Chunk = chunks.get(pos)
+	if chunk == null:
+		chunk = Chunk.new(pos * chunkSize, dataGenerator)
+		add_child(chunk)
+		chunks[pos] = chunk
+		subdivisionRate += chunk.progress(startTime)
+	else:
+		if chunk.progressSubdivisions.size() != 0:
+			chunksToProgress[chunk.chunksVoxelSize].append(chunk)
+		elif (
+			chunk.heldSubdivisons.size() != 0
+			and chunk.progressSubdivisions.size() == 0
+		):
+			# Get the chunks minimum voxel size, based on how close it is to the camera, halved from max each time
+			var subdivisionLevel: int = clamp(round(nQualityLevels - distance * lerp(0.1, 0.4, 0) + 2.0 ), 0, nQualityLevels)
+			# Readd anglequality, based on how rotated away from camera it is
+			var newVoxelSize: float = largestVoxelSize / pow(2, subdivisionLevel)
+
+			# Release subdivisions if the voxel size is too big
+			if chunk.chunksVoxelSize > newVoxelSize:
+				chunk.releaseSubdivisions(chunk.chunksVoxelSize / 2)
+
+	# Get first mesh instance count to see if it is empty
+	var firstMeshCount = 0
+	if largestVoxelSize in chunk.multiMeshes:
+		for material in chunk.multiMeshes[largestVoxelSize]:
+			firstMeshCount += chunk.multiMeshes[largestVoxelSize][material][1].size()
+	if firstMeshCount == 8:
+		return subdivisionRate
+
+	# Get directions offset by 1
+	var dirs: Array = []
+	for i in range(3):
+		var dir1: Vector3 = Vector3(0, 0, 0)
+		var dir2: Vector3 = Vector3(0, 0, 0)
+		dir1[i] = 1
+		dir2[i] = -1
+		dirs.append(dir1)
+		dirs.append(dir2)
+	subdivisionRate += searchChunk(subdivisionRate, chunksViewed, chunksToProgress, startTime, startPos, pos - dir, dir)
+	for dir2 in dirs:
+		subdivisionRate += searchChunk(subdivisionRate, chunksViewed, chunksToProgress, startTime, startPos, pos + dir2, dir)
+
+	return subdivisionRate
+
 
 func _process(_delta: float) -> void:
 	# Get time to calculate ms budget
@@ -437,13 +495,14 @@ func _process(_delta: float) -> void:
 	var cameraPos: Vector3 = camera.global_transform.origin
 	var cameraDir: Vector3 = camera.global_transform.basis.z
 	# Temporary fake camera pos
-	# cameraPos = Vector3(0, 0, 0)
-	# cameraDir = Vector3(0, 0, 1)
+	cameraPos = Vector3(0, 0, 0)
+	cameraDir = Vector3(0, 0, 1)
 
 	var subdivisionRate: int = 0
 
 	# Previous chunk searching Chunks: 10404 Meshes: 27774 Voxels: 248065
 
+<<<<<<< HEAD
 	# Progress on chunks
 	var chunksViewed: Array[Vector2] = []
 	var rotateAngles: float = 16
@@ -451,10 +510,14 @@ func _process(_delta: float) -> void:
 	var rotatePerRun: float = 360 / rotateAngles
 	var jitter: float = sin(Time.get_ticks_msec() / 500.0) * rotatePerRun
 	# Keep track of chunks to progress by voxel size, so we can progress in order of quality
+=======
+>>>>>>> c00d544 (Testing new chunk search)
 	var chunksToProgress: Dictionary = {}
+	var chunksViewed: Array[Vector3] = []
 	for qLevel in range(nQualityLevels + 1):
 		var voxelSize: float = largestVoxelSize / pow(2, qLevel)
 		chunksToProgress[voxelSize] = []
+<<<<<<< HEAD
 	# Loop through chunks in rotated lines from center
 	for angle in range(rotateAngles / 2):
 		# 0 to 1 for the angle of rotation
@@ -505,11 +568,53 @@ func _process(_delta: float) -> void:
 							nQualityLevels
 						)
 						var newVoxelSize: float = largestVoxelSize / pow(2, subdivisionLevel)
+=======
 
-						# Release subdivisions if the voxel size is too big
-						if chunk.chunksVoxelSize > newVoxelSize:
-							chunk.releaseSubdivisions(chunk.chunksVoxelSize / 2)
+	var chunkPos: Vector3 = Vector3(round(cameraPos.x / chunkSize), round(cameraPos.y / chunkSize), round(cameraPos.z / chunkSize))
+	var snappedDir: Vector3 = Vector3(round(cameraDir.x), round(cameraDir.y), round(cameraDir.z))
+	subdivisionRate += searchChunk(subdivisionRate, chunksViewed, chunksToProgress, startTime, chunkPos, chunkPos, snappedDir)
 
+	# # Progress on chunks
+	# var chunksViewed: Array[Vector3] = []
+	# var rotateAngles: float = 16
+	# # Get rotate per run and jitter
+	# var rotatePerRun: float = 360 / rotateAngles
+	# var jitter: float = sin(Time.get_ticks_msec() / (200.0 + randf() * 50)) * rotatePerRun
+	# var jitter2: float = cos(Time.get_ticks_msec() / (200.0 + randf() * 50)) * rotatePerRun
+	# # Keep track of chunks to progress by voxel size, so we can progress in order of quality
+	# var chunksToProgress: Dictionary = {}
+	# for qLevel in range(nQualityLevels + 1):
+	# 	var voxelSize: float = largestVoxelSize / pow(2, qLevel)
+	# 	chunksToProgress[voxelSize] = []
+	# # Loop through chunks in rotated lines from center
+	# for angleH in range(rotateAngles / 2):
+	# 	# 0 to 1 for the angle of rotation
+	# 	var angleQuality: float = angleH / rotateAngles * 2
+	# 	# Start rotation from 0, then -angle, then angle, then -angle * 2, then angle * 2, etc
+	# 	var flip: int = 1 if angleH % 2 == 0 else -1
+	# 	var dir: Vector3 = cameraDir.rotated(
+	# 		Vector3(0, 1, 0), deg_to_rad(180 + angleH * flip * rotatePerRun + jitter)
+	# 	)
+	# 	# Loop through chunks in rotated lines, vertical
+	# 	for angleV in range(rotateAngles / 4):
+	# 		# 0 to 1 for the angle of rotation
+	# 		var angleQualityV: float = angleV / rotateAngles * 2
+	# 		# Start rotation from 0, then -angle, then angle, then -angle * 2, then angle * 2, etc
+	# 		var flipV: int = 1 if angleV % 2 == 0 else -1
+	# 		var dirV: Vector3 = dir.rotated(
+	# 			Vector3(1, 0, 0), deg_to_rad(angleV * flipV * rotatePerRun + jitter2)
+	# 		)
+	# 		for i in range(renderDistance):
+	# 			var pos: Vector3 = cameraPos + dirV * i * chunkSize
+>>>>>>> c00d544 (Testing new chunk search)
+
+	# 			var renderChunkPos3d: Vector3 = round(pos / chunkSize) * chunkSize
+	# 			# If the chunk is already in the list, skip it
+	# 			if renderChunkPos3d in chunksViewed:
+	# 				continue
+	# 			chunksViewed.append(renderChunkPos3d)
+
+<<<<<<< HEAD
 				# Get first mesh instance count to see if it is empty
 				var firstMeshCount = 0
 				if largestVoxelSize in chunk.multiMeshes:
@@ -524,6 +629,50 @@ func _process(_delta: float) -> void:
 				break
 		if Time.get_ticks_msec() - startTime > msBudget:
 			break
+=======
+	# 			# Find if chunk exists
+	# 			var chunk: Chunk = chunks.get(renderChunkPos3d)
+	# 			if chunk == null:
+	# 				chunk = Chunk.new(renderChunkPos3d, dataGenerator)
+	# 				add_child(chunk)
+	# 				chunks[renderChunkPos3d] = chunk
+	# 				subdivisionRate += chunk.progress(startTime)
+	# 			else:
+	# 				if chunk.progressSubdivisions.size() != 0:
+	# 					chunksToProgress[chunk.chunksVoxelSize].append(chunk)
+	# 				elif (
+	# 					chunk.heldSubdivisons.size() != 0
+	# 					and chunk.progressSubdivisions.size() == 0
+	# 				):
+	# 					# Get the distance from the camera
+	# 					var chunkDistance: float = renderChunkPos3d.distance_to(cameraPos) / chunkSize
+	# 					# Get the chunks minimum voxel size, based on how close it is to the camera, halved from max each time
+	# 					var subdivisionLevel: int = clamp(
+	# 						round(
+	# 							nQualityLevels - chunkDistance * lerp(0.1, 0.4, angleQuality * angleQualityV) + 2.0
+	# 						),
+	# 						0,
+	# 						nQualityLevels
+	# 					)
+	# 					var newVoxelSize: float = largestVoxelSize / pow(2, subdivisionLevel)
+
+	# 					# Release subdivisions if the voxel size is too big
+	# 					if chunk.chunksVoxelSize > newVoxelSize:
+	# 						chunk.releaseSubdivisions(chunk.chunksVoxelSize / 2)
+
+	# 			# Get first mesh instance count to see if it is empty
+	# 			var firstMeshCount = 0
+	# 			if largestVoxelSize in chunk.multiMeshes:
+	# 				for material in chunk.multiMeshes[largestVoxelSize]:
+	# 					firstMeshCount += chunk.multiMeshes[largestVoxelSize][material][1].size()
+	# 			if firstMeshCount == 8:
+	# 				break
+	# 		# If we have gone over the time budget, break
+	# 		if Time.get_ticks_msec() - startTime > msBudget:
+	# 			break
+	# 	if Time.get_ticks_msec() - startTime > msBudget:
+	# 		break
+>>>>>>> c00d544 (Testing new chunk search)
 
 	# Progress on chunks
 	for voxelSize in chunksToProgress:
@@ -539,15 +688,15 @@ func _process(_delta: float) -> void:
 
 	# Remove chunks that are too far away
 	var chunksToRemove: Array[Vector3] = []
-	for chunkPos in chunks:
-		if chunkPos.distance_to(cameraPos) > renderDistance * 1.2 * chunkSize:
-			chunksToRemove.append(chunkPos)
+	for pos in chunks:
+		if pos.distance_to(cameraPos) > renderDistance * 1.2 * chunkSize:
+			chunksToRemove.append(pos)
 			if chunksToRemove.size() > maxChunksRemovedPerFrame:
 				break
 	# Remove max x chunks per frame
-	for chunkPos in chunksToRemove:
-		chunks[chunkPos].queue_free()
-		chunks.erase(chunkPos)
+	for pos in chunksToRemove:
+		chunks[pos].queue_free()
+		chunks.erase(pos)
 
 	# Print stats
 	if frameNumber % 20 == 0:
@@ -560,9 +709,9 @@ func _process(_delta: float) -> void:
 		
 		var totalVoxels: int = 0
 		var totalMeshes: int = 0
-		for chunkPos in chunks:
-			totalVoxels += chunks[chunkPos].voxelsCount
-			totalMeshes += chunks[chunkPos].multiMeshes.size() * voxelMaterials.size()
+		for pos in chunks:
+			totalVoxels += chunks[pos].voxelsCount
+			totalMeshes += chunks[pos].multiMeshes.size() * voxelMaterials.size()
 		
 		var message: Array[String] = []
 		message.append(
