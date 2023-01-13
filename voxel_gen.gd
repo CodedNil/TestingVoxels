@@ -68,6 +68,18 @@ class DataGenerator:
 			calcium * 0.8 - graphite * 0.5
 		)
 
+		# Get magic type in zone
+		var magicChances: Dictionary = {
+			"fire": temperature,
+			"water": humidity,
+			"air": smoothness,
+			"earth": 1 - smoothstep(-10, 10, elevation),
+		}
+		var magicType: String = "fire"
+		for magic in magicChances:
+			if magicChances[magic] > magicChances[magicType]:
+				magicType = magic
+
 		# Get position offset by noise, so it is not on a perfect grid
 		var horizontalOffset = Vector2(
 			worldNoise.get_noise_1d(pos2d.y / 4) * (roomSpacing / 3),
@@ -142,6 +154,7 @@ class DataGenerator:
 			"lushness": lushness,
 			"development": development,
 			"rockColor": rockColor,
+			"magicType": magicType,
 			"roomFloor": roomFloor,
 			"roomCeiling": roomCeiling,
 			"roomPosition": roomPosition,
@@ -169,7 +182,7 @@ class DataGenerator:
 				pos3d.y * roomHeightSmooth,
 				pos3d.z - data2d.roomPosition.y
 			)
-			. length()
+			.length()
 		)
 		var roomInside3d: bool = roomDist3d < data2d.roomSize
 
@@ -203,17 +216,22 @@ class DataGenerator:
 		if data2d.floorVariance3 < 0.5:
 			color = lerp(color, color * 0.5, smoothstep(0.5, 0.3, data2d.floorVariance3))
 
-		# Add blue magic lines based on 3d noise
-		# TODO based this on the 4 magic types, earth air water fire
-		# Fire is temperature is hot, water is humidity is high, air is smoothness is high, earth is elevation is low
+		# Add magic lines based on 3d noise
 		if pos3d.y > -2 and size <= 1:
 			var noiseMagic: float = worldNoise.get_noise_3dv(pos3d * 2)
 			if abs(noiseMagic) < 0.05:
-				# var magicColor: Color = Color(0, 0, 0)
-				# if data2d.temperature > 0.5:
-				# 	magicColor += Color(1, 0, 0)
-				color = color * 0.1 + Color(0, 0, 1 - abs(noiseMagic) * 10)
-				material = "emissive"
+				var magicColor: Color = Color(0, 0, 0)
+				if data2d.magicType == "fire":
+					magicColor = Color(1, 0, 0)
+				elif data2d.magicType == "water":
+					magicColor = Color(0, 0, 1)
+				elif data2d.magicType == "air":
+					magicColor = Color(1, 1, 1)
+				elif data2d.magicType == "earth":
+					magicColor = Color(0.5, 0.25, 0.05)
+				# magicColor *= 1 - abs(noiseMagic) * 10
+				color = magicColor#color * 0.1 + magicColor
+				material = "emissive_" + data2d.magicType
 
 		# Add color on floors
 		if pos3d.y < (data2d.roomFloor - 4) * 4 - 2 and material == "standard":
@@ -361,7 +379,6 @@ class Chunk:
 		multiMeshes[size][dataColor.material][1].append([dataColor.posJittered, dataColor.color])
 
 		# Add collision shape
-		# if size >= 0.5:
 		var shape: CollisionShape3D = CollisionShape3D.new()
 		shape.shape = get_parent().boxShapes[size]
 		shape.global_transform = Transform3D(Basis(), dataColor.posJittered)
@@ -388,7 +405,7 @@ class Chunk:
 			# Smaller voxels have higher threshold for air, so less small voxels made
 			var maxAirVoxels: int = 4 if voxelSize == 0.5 else 2 if voxelSize == 1 else 0
 
-			if voxelSize < 0.5:
+			if voxelSize <= 0.5:
 				# Fully divide magic lines
 				if pos3d.y > -2:
 					var noiseMagic: float = dataGen.worldNoise.get_noise_3dv(pos3d * 2)
@@ -470,7 +487,21 @@ func _ready() -> void:
 
 	# Define the materials
 	voxelMaterials["standard"] = preload("res://materials/voxel_standard.tres")
-	voxelMaterials["emissive"] = preload("res://materials/voxel_emissive.tres")
+
+	var magicColors: Dictionary = {
+		"fire": Color(0.7, 0.2, 0.2),
+		"water": Color(0.2, 0.2, 0.7),
+		"air": Color(0.7, 0.7, 0.7),
+		"earth": Color(0.5, 0.25, 0.05),
+	}
+	for magic in magicColors:
+		var magicMaterial: StandardMaterial3D = StandardMaterial3D.new()
+		magicMaterial.vertex_color_use_as_albedo = true
+		magicMaterial.emission_enabled = true
+		magicMaterial.emission = magicColors[magic]
+		magicMaterial.emission_energy_multiplier = 0.2
+		magicMaterial.rim_enabled = true
+		voxelMaterials["emissive_" + magic] = magicMaterial
 
 
 func _process(_delta: float) -> void:
@@ -644,9 +675,9 @@ func _process(_delta: float) -> void:
 		)
 		message.append("Subdivision rate: " + str(avgSubdivisionRate))
 		# 2d Data
-		# var data2d: Dictionary = dataGenerator.get_data_2d(Vector2(cameraPos.x, cameraPos.z))
-		# for key in data2d:
-		# 	message.append(key + ": " + str(data2d[key]))
+		var data2d: Dictionary = dataGenerator.get_data_2d(Vector2(int(cameraPos.x), int(cameraPos.z)))
+		for key in data2d:
+			message.append(key + ": " + str(data2d[key]))
 		print("\n".join(message))
 		if not profiler.disabled:
 			profiler.print_durations()
