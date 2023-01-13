@@ -1,7 +1,7 @@
 extends StaticBody3D
 
-const chunkSize: float = 4.0
-const largestVoxelSize: float = 2.0
+const chunkSize: float = 8.0
+const largestVoxelSize: float = 4.0
 const smallestVoxelSize: float = 0.25
 
 const roomSpacing: float = 150
@@ -282,6 +282,7 @@ class Chunk:
 	var chunksVoxelSize: float = largestVoxelSize  # Chunks current subdivision level
 
 	var voxelsCount: int = 0  # Number of voxels in the chunk
+	var fullChunk: bool = false  # Is the chunk full of voxels
 
 	# Hold back subdivisions until you get closer, or to prevent lag
 	var progressSubdivisions: Array = []
@@ -297,8 +298,11 @@ class Chunk:
 
 	func rerenderMultiMeshes() -> void:
 		# Count number of voxels at each size, and set instance count, and create the meshes
+		var firstMeshCount = 0
 		for size in multiMeshes:
 			for material in multiMeshes[size]:
+				if size == largestVoxelSize:
+					firstMeshCount += multiMeshes[size][material][1].size()
 				var mesh = multiMeshes[size][material][0]
 				var meshArray = multiMeshes[size][material][1]
 				if mesh.instance_count != len(meshArray):
@@ -306,6 +310,8 @@ class Chunk:
 					for i in range(len(meshArray)):
 						mesh.set_instance_transform(i, Transform3D(Basis(), meshArray[i][0]))
 						mesh.set_instance_color(i, meshArray[i][1])
+		if firstMeshCount == 8:
+			fullChunk = true
 
 	func renderVoxel(pos2d: Vector2, pos3d: Vector3, data2d: Dictionary, size: float) -> void:
 		var dataColor: Dictionary = dataGen.get_data_color(pos2d, pos3d, data2d, size)
@@ -422,21 +428,31 @@ class Chunk:
 
 
 var chunks: Dictionary = {}
-var subdivisionRates = []
+var subdivisionRates: Array = []
+var searched: bool = false
 
 var frameNumber: int = 0
 
-func searchChunk(subdivisionRate: int, chunksViewed: Array[Vector3], chunksToProgress: Dictionary, startTime: float, startPos: Vector3, pos: Vector3, dir: Vector3) -> int:
+func searchChunk(chunksViewed: Array[Vector3], iterations: int, chunksToProgress: Dictionary, startTime: float, startPos: Vector3, pos: Vector3, dir: Vector3) -> void:
 	var distance: float = (startPos - pos).length()
 	if distance > renderDistance:
-		return subdivisionRate
+		return
 	# If chunk has already being viewed, skip
 	if pos in chunksViewed:
-		return subdivisionRate
+		return
 	chunksViewed.append(pos)
 	# If we have gone over the time budget, end
-	if Time.get_ticks_msec() - startTime > msBudget:
-		return subdivisionRate
+	# if Time.get_ticks_msec() - startTime > msBudget:
+	# 	return
+
+	# # Draw a green box on chunk pos
+	# var box: MeshInstance3D = MeshInstance3D.new()
+	# box.mesh = BoxMesh.new()
+	# box.material_override = StandardMaterial3D.new()
+	# box.material_override.emission = Color(0, float(iterations) / 64, 0)
+	# box.material_override.emission_enabled = true
+	# box.transform.origin = pos * chunkSize
+	# add_child(box)
 
 	# Find if chunk exists
 	var chunk: Chunk = chunks.get(pos)
@@ -444,7 +460,7 @@ func searchChunk(subdivisionRate: int, chunksViewed: Array[Vector3], chunksToPro
 		chunk = Chunk.new(pos * chunkSize, dataGenerator)
 		add_child(chunk)
 		chunks[pos] = chunk
-		subdivisionRate += chunk.progress(startTime)
+		subdivisionRates[len(subdivisionRates) - 1] += chunk.progress(0)
 	else:
 		if chunk.progressSubdivisions.size() != 0:
 			chunksToProgress[chunk.chunksVoxelSize].append(chunk)
@@ -462,27 +478,33 @@ func searchChunk(subdivisionRate: int, chunksViewed: Array[Vector3], chunksToPro
 				chunk.releaseSubdivisions(chunk.chunksVoxelSize / 2)
 
 	# Get first mesh instance count to see if it is empty
-	var firstMeshCount = 0
-	if largestVoxelSize in chunk.multiMeshes:
-		for material in chunk.multiMeshes[largestVoxelSize]:
-			firstMeshCount += chunk.multiMeshes[largestVoxelSize][material][1].size()
-	if firstMeshCount == 8:
-		return subdivisionRate
+	if chunk.fullChunk:
+		return
 
 	# Get directions offset by 1
 	var dirs: Array = []
-	for i in range(3):
-		var dir1: Vector3 = Vector3(0, 0, 0)
-		var dir2: Vector3 = Vector3(0, 0, 0)
-		dir1[i] = 1
-		dir2[i] = -1
-		dirs.append(dir1)
-		dirs.append(dir2)
-	subdivisionRate += searchChunk(subdivisionRate, chunksViewed, chunksToProgress, startTime, startPos, pos - dir, dir)
+	dirs.append(-dir)
+	dirs.append(-dir + dir.rotated(Vector3(0, 1, 0), PI / 2))
+	dirs.append(-dir + dir.rotated(Vector3(0, 1, 0), -PI / 2))
+	dirs.append(-dir + dir.rotated(Vector3(1, 0, 0), PI / 2))
+	dirs.append(-dir + dir.rotated(Vector3(1, 0, 0), -PI / 2))
 	for dir2 in dirs:
-		subdivisionRate += searchChunk(subdivisionRate, chunksViewed, chunksToProgress, startTime, startPos, pos + dir2, dir)
+		var pos2: Vector3 = pos + dir2
+		pos2 = Vector3(round(pos2.x), round(pos2.y), round(pos2.z))
+		searchChunk(chunksViewed, iterations + 1, chunksToProgress, startTime, startPos, pos2, dir)
 
-	return subdivisionRate
+		# # Draw a box in direction
+		# var box2: MeshInstance3D = MeshInstance3D.new()
+		# box2.mesh = BoxMesh.new()
+		# box2.material_override = StandardMaterial3D.new()
+		# box2.material_override.emission = Color(1, 0, 0)
+		# box2.material_override.emission_enabled = true
+		# box2.transform.origin = pos * chunkSize + dir2 * 10
+		# box2.scale = Vector3(0.5, 0.5, 0.5)
+		# add_child(box2)
+
+
+	return
 
 
 func _process(_delta: float) -> void:
@@ -495,10 +517,10 @@ func _process(_delta: float) -> void:
 	var cameraPos: Vector3 = camera.global_transform.origin
 	var cameraDir: Vector3 = camera.global_transform.basis.z
 	# Temporary fake camera pos
-	cameraPos = Vector3(0, 0, 0)
-	cameraDir = Vector3(0, 0, 1)
+	# cameraPos = Vector3(0, 0, 0)
+	# cameraDir = Vector3(0, 0, 1)
 
-	var subdivisionRate: int = 0
+	subdivisionRates.append(0)
 
 	# Previous chunk searching Chunks: 10404 Meshes: 27774 Voxels: 248065
 
@@ -510,7 +532,7 @@ func _process(_delta: float) -> void:
 
 	var chunkPos: Vector3 = Vector3(round(cameraPos.x / chunkSize), round(cameraPos.y / chunkSize), round(cameraPos.z / chunkSize))
 	var snappedDir: Vector3 = Vector3(round(cameraDir.x), round(cameraDir.y), round(cameraDir.z))
-	subdivisionRate += searchChunk(subdivisionRate, chunksViewed, chunksToProgress, startTime, chunkPos, chunkPos, snappedDir)
+	searchChunk(chunksViewed, 0, chunksToProgress, startTime, chunkPos, chunkPos, snappedDir)
 
 	# # Progress on chunks
 	# var chunksViewed: Array[Vector3] = []
@@ -582,11 +604,7 @@ func _process(_delta: float) -> void:
 	# 						chunk.releaseSubdivisions(chunk.chunksVoxelSize / 2)
 
 	# 			# Get first mesh instance count to see if it is empty
-	# 			var firstMeshCount = 0
-	# 			if largestVoxelSize in chunk.multiMeshes:
-	# 				for material in chunk.multiMeshes[largestVoxelSize]:
-	# 					firstMeshCount += chunk.multiMeshes[largestVoxelSize][material][1].size()
-	# 			if firstMeshCount == 8:
+	# 			if chunk.fullChunk:
 	# 				break
 	# 		# If we have gone over the time budget, break
 	# 		if Time.get_ticks_msec() - startTime > msBudget:
@@ -597,14 +615,11 @@ func _process(_delta: float) -> void:
 	# Progress on chunks
 	for voxelSize in chunksToProgress:
 		for chunk in chunksToProgress[voxelSize]:
-			subdivisionRate += chunk.progress(startTime)
+			subdivisionRates[len(subdivisionRates) - 1] += chunk.progress(startTime)
 			if Time.get_ticks_msec() - startTime > msBudget:
 				break
 		if Time.get_ticks_msec() - startTime > msBudget:
 			break
-
-	# Add subdivision rate to array
-	subdivisionRates.append(subdivisionRate)
 
 	# Remove chunks that are too far away
 	var chunksToRemove: Array[Vector3] = []
