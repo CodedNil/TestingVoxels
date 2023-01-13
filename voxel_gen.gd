@@ -1,7 +1,7 @@
 extends StaticBody3D
 
-const chunkSize: float = 4.0
-const largestVoxelSize: float = 2.0
+const chunkSize: float = 8.0
+const largestVoxelSize: float = 4.0
 const smallestVoxelSize: float = 0.25
 
 const roomSpacing: float = 150
@@ -9,8 +9,7 @@ const roomSpacing: float = 150
 const renderDistance: int = 32
 const yLevels: Array[int] = [0, 1, -1, 2, -2, 3, -3, 4, 5, 6, 7, 8]
 
-const msBudget: float = 16  # Max time to spend on subdivision per update frame
-const maxChunksRemovedPerFrame: int = 5  # Max number of chunks to remove per update frame
+const msBudget: float = 8  # Max time to spend on subdivision per update frame
 
 # Get number of quality levels, based on the largest and smallest voxel size
 const nQualityLevels: int = int(log(largestVoxelSize / smallestVoxelSize) / log(2))
@@ -249,27 +248,32 @@ class DataGenerator:
 			"posJittered": posJittered,
 		}
 
+class Profiler:
+	var startTimes: Dictionary = {}
+	var endTimes: Dictionary = {}
+	var durations: Dictionary = {}
+	var disabled: bool = true
+
+	func start(name: String) -> void:
+		if not disabled:
+			startTimes[name] = Time.get_ticks_msec()
+	
+	func end(name: String) -> void:
+		if not disabled:
+			endTimes[name] = Time.get_ticks_msec()
+
+	func print_durations() -> void:
+		if not disabled:
+			for name in startTimes:
+				if name in endTimes:
+					var duration: int = endTimes[name] - startTimes[name]
+					print(name + ": ", duration)
 
 var voxelMaterials: Dictionary = {}
 var boxMeshes: Dictionary = {}
 var boxShapes: Dictionary = {}
 var dataGenerator: DataGenerator = DataGenerator.new()
-
-
-func _ready() -> void:
-	# Create the box meshes for each voxel size
-	var cVoxelSize: float = chunkSize
-	while cVoxelSize > smallestVoxelSize:
-		cVoxelSize /= 2
-		if cVoxelSize <= largestVoxelSize:
-			boxMeshes[cVoxelSize] = BoxMesh.new()
-			boxMeshes[cVoxelSize].size = Vector3(cVoxelSize, cVoxelSize, cVoxelSize)
-			boxShapes[cVoxelSize] = BoxShape3D.new()
-			boxShapes[cVoxelSize].extents = Vector3(cVoxelSize, cVoxelSize, cVoxelSize) / 2
-
-	# Define the materials
-	voxelMaterials["standard"] = preload("res://materials/voxel_standard.tres")
-	voxelMaterials["emissive"] = preload("res://materials/voxel_emissive.tres")
+var profiler: Profiler = Profiler.new()
 
 
 # Chunk class
@@ -283,6 +287,7 @@ class Chunk:
 
 	var voxelsCount: int = 0  # Number of voxels in the chunk
 	var filled: bool = false  # Is the chunk filled with voxels
+	var empty: bool = true  # Is the chunk empty of voxels
 
 	# Hold back subdivisions until you get closer, or to prevent lag
 	var progressSubdivisions: Array = []
@@ -296,21 +301,39 @@ class Chunk:
 		subdivideVoxel(pos, chunkSize)
 		rerenderMultiMeshes()
 
-	func rerenderMultiMeshes() -> void:
-		# Count number of voxels at each size, and set instance count, and create the meshes
+	func postInit() -> void:
+		if heldSubdivisons.size() > 0:
+			empty = false
 		var firstMeshCount = 0
+		for size in multiMeshes:
+			for material in multiMeshes[size]:
+				if size == largestVoxelSize:
+					firstMeshCount += multiMeshes[size][material][1].size()
+		filled = firstMeshCount == 8
+
+	# Clean for cache use
+	func clean() -> void:
 		for size in multiMeshes:
 			for material in multiMeshes[size]:
 				var mesh = multiMeshes[size][material][0]
 				var meshArray = multiMeshes[size][material][1]
-				if size == largestVoxelSize:
-					firstMeshCount += meshArray.size()
+				mesh.instance_count = 0
+				meshArray.clear()
+		chunksVoxelSize = largestVoxelSize
+		progressSubdivisions.clear()
+		heldSubdivisons.clear()
+
+	func rerenderMultiMeshes() -> void:
+		# Count number of voxels at each size, and set instance count, and create the meshes
+		for size in multiMeshes:
+			for material in multiMeshes[size]:
+				var mesh = multiMeshes[size][material][0]
+				var meshArray = multiMeshes[size][material][1]
 				if mesh.instance_count != len(meshArray):
 					mesh.instance_count = len(meshArray)
 					for i in range(len(meshArray)):
 						mesh.set_instance_transform(i, Transform3D(Basis(), meshArray[i][0]))
 						mesh.set_instance_color(i, meshArray[i][1])
-		filled = firstMeshCount == 8
 
 	func renderVoxel(pos2d: Vector2, pos3d: Vector3, data2d: Dictionary, size: float) -> void:
 		var dataColor: Dictionary = dataGen.get_data_color(pos2d, pos3d, data2d, size)
@@ -365,16 +388,17 @@ class Chunk:
 			# Smaller voxels have higher threshold for air, so less small voxels made
 			var maxAirVoxels: int = 4 if voxelSize == 0.5 else 2 if voxelSize == 1 else 0
 
-			# Fully divide magic lines
-			if pos3d.y > -2:
-				var noiseMagic: float = dataGen.worldNoise.get_noise_3dv(pos3d * 2)
-				if abs(noiseMagic) < 0.05:
-					maxAirVoxels = 3 if voxelSize == 0.5 else 1 if voxelSize == 1 else 0
-			# Fully divide grass
-			var pos2d3: Vector2 = Vector2(pos3d.x, pos3d.z)
-			var data2d3: Dictionary = dataGen.get_data_2d(pos2d3)
-			if data2d3.floorMaterial == "moss":
-				maxAirVoxels = 0
+			if voxelSize < 0.5:
+				# Fully divide magic lines
+				if pos3d.y > -2:
+					var noiseMagic: float = dataGen.worldNoise.get_noise_3dv(pos3d * 2)
+					if abs(noiseMagic) < 0.05:
+						maxAirVoxels = 3 if voxelSize == 0.5 else 1 if voxelSize == 1 else 0
+				# Fully divide grass
+				var pos2d3: Vector2 = Vector2(pos3d.x, pos3d.z)
+				var data2d3: Dictionary = dataGen.get_data_2d(pos2d3)
+				if data2d3.floorMaterial == "moss":
+					maxAirVoxels = 0
 
 			for x in [pos3d.x - hVoxelSize, pos3d.x + hVoxelSize]:
 				for z in [pos3d.z - hVoxelSize, pos3d.z + hVoxelSize]:
@@ -427,9 +451,26 @@ class Chunk:
 
 
 var chunks: Dictionary = {}
+var chunksCached: Dictionary = {}
 var subdivisionRates = []
 
 var frameNumber: int = 0
+
+
+func _ready() -> void:
+	# Create the box meshes for each voxel size
+	var cVoxelSize: float = chunkSize
+	while cVoxelSize > smallestVoxelSize:
+		cVoxelSize /= 2
+		if cVoxelSize <= largestVoxelSize:
+			boxMeshes[cVoxelSize] = BoxMesh.new()
+			boxMeshes[cVoxelSize].size = Vector3(cVoxelSize, cVoxelSize, cVoxelSize)
+			boxShapes[cVoxelSize] = BoxShape3D.new()
+			boxShapes[cVoxelSize].extents = Vector3(cVoxelSize, cVoxelSize, cVoxelSize) / 2
+
+	# Define the materials
+	voxelMaterials["standard"] = preload("res://materials/voxel_standard.tres")
+	voxelMaterials["emissive"] = preload("res://materials/voxel_emissive.tres")
 
 
 func _process(_delta: float) -> void:
@@ -444,6 +485,9 @@ func _process(_delta: float) -> void:
 	# Temporary fake camera pos
 	# cameraPos = Vector3(0, 0, 0)
 	# cameraDir = Vector3(0, 0, 1)
+
+	# If camera is looking down, pause
+	# var paused: bool = camera.get_node("CameraRotator").rotation.x < -1
 
 	var subdivisionRate: int = 0
 
@@ -460,7 +504,9 @@ func _process(_delta: float) -> void:
 	for qLevel in range(nQualityLevels + 1):
 		var voxelSize: float = largestVoxelSize / pow(2, qLevel)
 		chunksToProgress[voxelSize] = []
+
 	# Loop through chunks in rotated lines from center
+	profiler.start("Chunk Searching")
 	for angle in range(rotateAngles / 2):
 		# 0 to 1 for the angle of rotation
 		var angleQuality: float = angle / rotateAngles * 2
@@ -488,10 +534,19 @@ func _process(_delta: float) -> void:
 				# Find if chunk exists
 				var chunk: Chunk = chunks.get(renderChunkPos)
 				if chunk == null:
-					chunk = Chunk.new(renderChunkPos, dataGenerator)
-					add_child(chunk)
+					# Create new chunk or retrieve from cache
+					if chunksCached.size() > 0:
+						var key = chunksCached.keys()[0]
+						chunk = chunksCached[key]
+						chunksCached.erase(key)
+						chunk.clean()
+						chunk._init(renderChunkPos, dataGenerator)
+					else:
+						chunk = Chunk.new(renderChunkPos, dataGenerator)
+						add_child(chunk)
 					chunks[renderChunkPos] = chunk
 					subdivisionRate += chunk.progress(0)
+					chunk.postInit()
 				else:
 					if chunk.progressSubdivisions.size() != 0:
 						chunksToProgress[chunk.chunksVoxelSize].append(chunk)
@@ -504,7 +559,7 @@ func _process(_delta: float) -> void:
 						# Get the chunks minimum voxel size, based on how close it is to the camera, halved from max each time
 						var subdivisionLevel: int = clamp(
 							round(
-								nQualityLevels - chunkDistance * lerp(0.1, 0.4, angleQuality) + 2.0
+								nQualityLevels - chunkDistance * lerp(0.7 * smallestVoxelSize, 1.2 * smallestVoxelSize, angleQuality) + 1.0
 							),
 							0,
 							nQualityLevels
@@ -525,8 +580,10 @@ func _process(_delta: float) -> void:
 				break
 		if Time.get_ticks_msec() - startTime > msBudget:
 			break
+	profiler.end("Chunk Searching")
 
 	# Progress on chunks
+	profiler.start("Chunk Progressing")
 	for voxelSize in chunksToProgress:
 		for chunk in chunksToProgress[voxelSize]:
 			subdivisionRate += chunk.progress(startTime)
@@ -534,24 +591,25 @@ func _process(_delta: float) -> void:
 				break
 		if Time.get_ticks_msec() - startTime > msBudget:
 			break
+	profiler.end("Chunk Progressing")
 
 	# Add subdivision rate to array
 	subdivisionRates.append(subdivisionRate)
 
 	# Remove chunks that are too far away
+	profiler.start("Chunk Removal")
 	var chunksToRemove: Array[Vector3] = []
 	for chunkPos in chunks:
 		if chunkPos.distance_to(cameraPos) > renderDistance * 1.2 * chunkSize:
 			chunksToRemove.append(chunkPos)
-			if chunksToRemove.size() > maxChunksRemovedPerFrame:
-				break
 	# Remove max x chunks per frame
 	for chunkPos in chunksToRemove:
-		chunks[chunkPos].queue_free()
+		chunksCached[chunkPos] = chunks[chunkPos]
 		chunks.erase(chunkPos)
+	profiler.end("Chunk Removal")
 
 	# Print stats
-	if frameNumber % 20 == 0:
+	if frameNumber % 10 == 0:
 		# Average subdivision rate over the last 20 frames
 		var avgSubdivisionRate: float = 0
 		if subdivisionRates.size() > 20:
@@ -590,3 +648,5 @@ func _process(_delta: float) -> void:
 		# for key in data2d:
 		# 	message.append(key + ": " + str(data2d[key]))
 		print("\n".join(message))
+		if not profiler.disabled:
+			profiler.print_durations()
