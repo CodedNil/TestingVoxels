@@ -6,7 +6,7 @@ const smallestVoxelSize: float = 0.25
 
 const roomSpacing: float = 150
 
-const renderDistance: int = 64
+const renderDistance: int = 32
 const yLevels: Array[int] = [0, 1, -1, 2, -2, 3, -3, 4, 5, 6, 7, 8]
 
 const msBudget: float = 16  # Max time to spend on subdivision per update frame
@@ -282,6 +282,7 @@ class Chunk:
 	var chunksVoxelSize: float = largestVoxelSize  # Chunks current subdivision level
 
 	var voxelsCount: int = 0  # Number of voxels in the chunk
+	var filled: bool = false  # Is the chunk filled with voxels
 
 	# Hold back subdivisions until you get closer, or to prevent lag
 	var progressSubdivisions: Array = []
@@ -297,15 +298,19 @@ class Chunk:
 
 	func rerenderMultiMeshes() -> void:
 		# Count number of voxels at each size, and set instance count, and create the meshes
+		var firstMeshCount = 0
 		for size in multiMeshes:
 			for material in multiMeshes[size]:
 				var mesh = multiMeshes[size][material][0]
 				var meshArray = multiMeshes[size][material][1]
+				if size == largestVoxelSize:
+					firstMeshCount += meshArray.size()
 				if mesh.instance_count != len(meshArray):
 					mesh.instance_count = len(meshArray)
 					for i in range(len(meshArray)):
 						mesh.set_instance_transform(i, Transform3D(Basis(), meshArray[i][0]))
 						mesh.set_instance_color(i, meshArray[i][1])
+		filled = firstMeshCount == 8
 
 	func renderVoxel(pos2d: Vector2, pos3d: Vector3, data2d: Dictionary, size: float) -> void:
 		var dataColor: Dictionary = dataGen.get_data_color(pos2d, pos3d, data2d, size)
@@ -446,7 +451,7 @@ func _process(_delta: float) -> void:
 
 	# Progress on chunks
 	var chunksViewed: Array[Vector2] = []
-	var rotateAngles: float = 16
+	var rotateAngles: float = 32
 	# Get rotate per run and jitter
 	var rotatePerRun: float = 360 / rotateAngles
 	var jitter: float = sin(Time.get_ticks_msec() / 500.0) * rotatePerRun
@@ -486,7 +491,7 @@ func _process(_delta: float) -> void:
 					chunk = Chunk.new(renderChunkPos, dataGenerator)
 					add_child(chunk)
 					chunks[renderChunkPos] = chunk
-					subdivisionRate += chunk.progress(startTime)
+					subdivisionRate += chunk.progress(0)
 				else:
 					if chunk.progressSubdivisions.size() != 0:
 						chunksToProgress[chunk.chunksVoxelSize].append(chunk)
@@ -510,12 +515,8 @@ func _process(_delta: float) -> void:
 						if chunk.chunksVoxelSize > newVoxelSize:
 							chunk.releaseSubdivisions(chunk.chunksVoxelSize / 2)
 
-				# Get first mesh instance count to see if it is empty
-				var firstMeshCount = 0
-				if largestVoxelSize in chunk.multiMeshes:
-					for material in chunk.multiMeshes[largestVoxelSize]:
-						firstMeshCount += chunk.multiMeshes[largestVoxelSize][material][1].size()
-				if firstMeshCount == 8:
+				# If chunk is filled, can skip it
+				if chunk.filled:
 					emptyY += 1
 			if emptyY == len(yLevels):
 				break
@@ -585,7 +586,7 @@ func _process(_delta: float) -> void:
 		)
 		message.append("Subdivision rate: " + str(avgSubdivisionRate))
 		# 2d Data
-		var data2d: Dictionary = dataGenerator.get_data_2d(Vector2(cameraPos.x, cameraPos.z))
-		for key in data2d:
-			message.append(key + ": " + str(data2d[key]))
+		# var data2d: Dictionary = dataGenerator.get_data_2d(Vector2(cameraPos.x, cameraPos.z))
+		# for key in data2d:
+		# 	message.append(key + ": " + str(data2d[key]))
 		print("\n".join(message))
