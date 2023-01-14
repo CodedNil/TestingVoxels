@@ -18,7 +18,6 @@ config/icon="res://icon.svg"
 [rendering]
 
 driver/threads/thread_model=2
-global_illumination/gi/use_half_resolution=true
 environment/ssao/quality=3
 environment/ssil/quality=3
 scaling_3d/mode=1

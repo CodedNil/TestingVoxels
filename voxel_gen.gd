@@ -37,7 +37,6 @@ class DataGenerator:
 	# Get data for a point in the world
 	var cachedData2d: Dictionary = {}
 	var cachedData3d: Dictionary = {}
-	var cachedData2dColor: Dictionary = {}
 
 	func get_data_2d(pos2d: Vector2) -> Dictionary:
 		# Check if data is cached
@@ -135,7 +134,7 @@ class DataGenerator:
 		# Slight offset on the noise to make it look more natural
 		var noiseOffset: float = worldNoise.get_noise_2dv(pos2d * 4) * 0.02
 		# Use sand color if temperature is high and humidity low
-		if temperature > 0.7 + noiseOffset and humidity < 0.3 + noiseOffset:
+		if temperature > 0.6 + noiseOffset and humidity < 0.4 + noiseOffset:
 			floorMaterial = "sand"
 		# Use moss color if humidity high
 		if humidity > 0.5 + noiseOffset and floorVariance > 0.3 + noiseOffset:
@@ -217,21 +216,22 @@ class DataGenerator:
 			color = lerp(color, color * 0.5, smoothstep(0.5, 0.3, data2d.floorVariance3))
 
 		# Add magic lines based on 3d noise
-		if pos3d.y > -2 and size <= 1:
-			var noiseMagic: float = worldNoise.get_noise_3dv(pos3d * 2)
-			if abs(noiseMagic) < 0.05:
-				var magicColor: Color = Color(0, 0, 0)
-				if data2d.magicType == "fire":
-					magicColor = Color(1, 0, 0)
-				elif data2d.magicType == "water":
-					magicColor = Color(0, 0, 1)
-				elif data2d.magicType == "air":
-					magicColor = Color(1, 1, 1)
-				elif data2d.magicType == "earth":
-					magicColor = Color(0.5, 0.25, 0.05)
-				# magicColor *= 1 - abs(noiseMagic) * 10
-				color = magicColor#color * 0.1 + magicColor
-				material = "emissive_" + data2d.magicType
+		# if pos3d.y > -2 and size <= 1:
+		# 	var noiseMagic: float = worldNoise.get_noise_3dv(pos3d * 2)
+		# 	var magicAmount: float = smoothstep(-2, 10, pos3d.y)
+		# 	if abs(noiseMagic) < 0.05 * magicAmount:
+		# 		var magicColor: Color = Color(0, 0, 0)
+		# 		if data2d.magicType == "fire":
+		# 			magicColor = Color(1, 0, 0)
+		# 		elif data2d.magicType == "water":
+		# 			magicColor = Color(0, 0, 1)
+		# 		elif data2d.magicType == "air":
+		# 			magicColor = Color(1, 1, 1)
+		# 		elif data2d.magicType == "earth":
+		# 			magicColor = Color(0.5, 0.25, 0.05)
+		# 		# magicColor *= 1 - abs(noiseMagic) * 10
+		# 		color = magicColor#color * 0.1 + magicColor
+		# 		material = "emissive_" + data2d.magicType
 
 		# Add color on floors
 		if pos3d.y < (data2d.roomFloor - 4) * 4 - 2 and material == "standard":
@@ -407,10 +407,11 @@ class Chunk:
 
 			if voxelSize <= 0.5:
 				# Fully divide magic lines
-				if pos3d.y > -2:
-					var noiseMagic: float = dataGen.worldNoise.get_noise_3dv(pos3d * 2)
-					if abs(noiseMagic) < 0.05:
-						maxAirVoxels = 3 if voxelSize == 0.5 else 1 if voxelSize == 1 else 0
+				# if pos3d.y > -2:
+				# 	var noiseMagic: float = dataGen.worldNoise.get_noise_3dv(pos3d * 2)
+				# 	var magicAmount: float = smoothstep(-2, 10, pos3d.y)
+				# 	if abs(noiseMagic) < 0.05 * magicAmount:
+				# 		maxAirVoxels = 3 if voxelSize == 0.5 else 1 if voxelSize == 1 else 0
 				# Fully divide grass
 				var pos2d3: Vector2 = Vector2(pos3d.x, pos3d.z)
 				var data2d3: Dictionary = dataGen.get_data_2d(pos2d3)
@@ -675,9 +676,9 @@ func _process(_delta: float) -> void:
 		)
 		message.append("Subdivision rate: " + str(avgSubdivisionRate))
 		# 2d Data
-		var data2d: Dictionary = dataGenerator.get_data_2d(Vector2(int(cameraPos.x), int(cameraPos.z)))
-		for key in data2d:
-			message.append(key + ": " + str(data2d[key]))
+		# var data2d: Dictionary = dataGenerator.get_data_2d(Vector2(int(cameraPos.x), int(cameraPos.z)))
+		# for key in data2d:
+		# 	message.append(key + ": " + str(data2d[key]))
 		print("\n".join(message))
 		if not profiler.disabled:
 			profiler.print_durations()

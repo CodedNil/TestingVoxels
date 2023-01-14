@@ -6,24 +6,22 @@
 [sub_resource type="BoxShape3D" id="BoxShape3D_1tb5w"]
 
 [sub_resource type="Environment" id="Environment_0p6un"]
+background_mode = 1
 ambient_light_source = 2
 ambient_light_color = Color(0.196078, 0.196078, 0.196078, 1)
 reflected_light_source = 1
-ssr_enabled = true
 ssao_enabled = true
-ssao_detail = 5.0
-ssil_enabled = true
 sdfgi_enabled = true
 sdfgi_read_sky_light = false
 sdfgi_min_cell_size = 1.0
 sdfgi_energy = 3.0
 glow_enabled = true
+glow_bloom = 1.0
 volumetric_fog_enabled = true
-volumetric_fog_density = 0.02
+volumetric_fog_density = 0.01
 volumetric_fog_albedo = Color(0.235294, 0.235294, 0.235294, 1)
 volumetric_fog_emission = Color(0.0784314, 0.0784314, 0.0784314, 1)
 volumetric_fog_gi_inject = 16.0
-volumetric_fog_ambient_inject = 0.16
 volumetric_fog_sky_affect = 0.0
 volumetric_fog_temporal_reprojection_enabled = false
 
