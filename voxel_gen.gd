@@ -266,32 +266,10 @@ class DataGenerator:
 			"posJittered": posJittered,
 		}
 
-class Profiler:
-	var startTimes: Dictionary = {}
-	var endTimes: Dictionary = {}
-	var durations: Dictionary = {}
-	var disabled: bool = true
-
-	func start(name: String) -> void:
-		if not disabled:
-			startTimes[name] = Time.get_ticks_msec()
-	
-	func end(name: String) -> void:
-		if not disabled:
-			endTimes[name] = Time.get_ticks_msec()
-
-	func print_durations() -> void:
-		if not disabled:
-			for name in startTimes:
-				if name in endTimes:
-					var duration: int = endTimes[name] - startTimes[name]
-					print(name + ": ", duration)
-
 var voxelMaterials: Dictionary = {}
 var boxMeshes: Dictionary = {}
 var boxShapes: Dictionary = {}
 var dataGenerator: DataGenerator = DataGenerator.new()
-var profiler: Profiler = Profiler.new()
 
 
 # Chunk class
@@ -538,7 +516,6 @@ func _process(_delta: float) -> void:
 		chunksToProgress[voxelSize] = []
 
 	# Loop through chunks in rotated lines from center
-	profiler.start("Chunk Searching")
 	for angle in range(rotateAngles / 2):
 		# 0 to 1 for the angle of rotation
 		var angleQuality: float = angle / rotateAngles * 2
@@ -612,10 +589,8 @@ func _process(_delta: float) -> void:
 				break
 		if Time.get_ticks_msec() - startTime > msBudget:
 			break
-	profiler.end("Chunk Searching")
 
 	# Progress on chunks
-	profiler.start("Chunk Progressing")
 	for voxelSize in chunksToProgress:
 		for chunk in chunksToProgress[voxelSize]:
 			subdivisionRate += chunk.progress(startTime)
@@ -623,13 +598,11 @@ func _process(_delta: float) -> void:
 				break
 		if Time.get_ticks_msec() - startTime > msBudget:
 			break
-	profiler.end("Chunk Progressing")
 
 	# Add subdivision rate to array
 	subdivisionRates.append(subdivisionRate)
 
 	# Remove chunks that are too far away
-	profiler.start("Chunk Removal")
 	var chunksToRemove: Array[Vector3] = []
 	for chunkPos in chunks:
 		if chunkPos.distance_to(cameraPos) > renderDistance * 1.2 * chunkSize:
@@ -638,7 +611,6 @@ func _process(_delta: float) -> void:
 	for chunkPos in chunksToRemove:
 		chunksCached[chunkPos] = chunks[chunkPos]
 		chunks.erase(chunkPos)
-	profiler.end("Chunk Removal")
 
 	# Print stats
 	if frameNumber % 10 == 0:
@@ -680,5 +652,3 @@ func _process(_delta: float) -> void:
 		# for key in data2d:
 		# 	message.append(key + ": " + str(data2d[key]))
 		print("\n".join(message))
-		if not profiler.disabled:
-			profiler.print_durations()
