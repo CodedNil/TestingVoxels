@@ -1,6 +1,6 @@
 [gd_scene load_steps=6 format=3 uid="uid://bwuac0v14m6p2"]
 
-[ext_resource type="Script" path="res://voxel_gen.gd" id="4_1a6st"]
+[ext_resource type="Script" path="res://voxel_terrain.cs" id="1_m84i8"]
 [ext_resource type="PackedScene" uid="uid://bddb6165oue81" path="res://character/character.tscn" id="4_dqolu"]
 
 [sub_resource type="BoxShape3D" id="BoxShape3D_1tb5w"]
@@ -32,7 +32,7 @@ auto_exposure_min_sensitivity = 30.0
 [node name="MainScene" type="Node3D"]
 
 [node name="VoxelGenerator" type="StaticBody3D" parent="."]
-script = ExtResource("4_1a6st")
+script = ExtResource("1_m84i8")
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="VoxelGenerator"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.5, 0)
